@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -u
+
+PATH=/usr/bin:/bin
+export PATH
+BOOTLOG=/usr/local/libexec/arch-manager/recovery-bootlog
+READY=/run/arch-manager/recovery-ready
+TIMEOUT_SECONDS=60
+
+boot_mode() {
+    local token
+    for token in $(/usr/bin/cat /proc/cmdline 2>/dev/null); do
+        case "$token" in
+            arch_manager_local=1) printf 'local'; return 0 ;;
+            arch_manager_usb=1) printf 'usb'; return 0 ;;
+        esac
+    done
+    printf 'manual'
+}
+notice() {
+    local text=$1 dev
+    for dev in /dev/tty1 /dev/console; do
+        [[ -w "$dev" ]] || continue
+        /usr/bin/printf '\n\nARCH MANAGER RECOVERY: %s\n' "$text" >"$dev" 2>/dev/null || true
+    done
+}
+
+"$BOOTLOG" stage "watchdog-start timeout=${TIMEOUT_SECONDS}s" >/dev/null 2>&1 || true
+for (( elapsed = 0; elapsed < TIMEOUT_SECONDS; elapsed++ )); do
+    if [[ -e "$READY" ]]; then
+        "$BOOTLOG" stage "watchdog-disarmed elapsed=${elapsed}s" >/dev/null 2>&1 || true
+        exit 0
+    fi
+    /usr/bin/sleep 1
+done
+
+[[ -e "$READY" ]] && exit 0
+"$BOOTLOG" timeout >/dev/null 2>&1 || true
+mode=$(boot_mode)
+if [[ "$mode" == local ]]; then
+    notice "wizard did not become ready within 60 seconds. Diagnostics were saved. Normal Arch Linux boot will resume in 10 seconds."
+else
+    notice "wizard did not become ready within 60 seconds. Diagnostics were saved. The computer will power off in 10 seconds to prevent a Recovery boot loop."
+fi
+/usr/bin/sleep 10
+
+if [[ "$mode" == local ]]; then
+    /usr/bin/systemctl --no-block reboot >/dev/null 2>&1 || /usr/bin/reboot -f
+else
+    /usr/bin/systemctl --no-block poweroff >/dev/null 2>&1 || /usr/bin/poweroff -f
+fi
+exit 0

@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.log
+*.bak
+*.tmp
+*~
+backup/
+backups/
+
+# Arch Manager local backups
+patch-backups/
+.backups/
+.chatgpt_backups/
+.chatgpt-backups/

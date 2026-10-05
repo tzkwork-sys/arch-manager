@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Canonical Recovery engine source. The installer replaces this file with the
+# mature project engine in the trusted installed resource directory.
+exec /usr/local/bin/arch-recovery.sh "$@"

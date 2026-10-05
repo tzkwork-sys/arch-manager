@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+set -u
+
+PATH=/usr/bin:/bin
+export PATH
+RUNTIME_DIR=/run/arch-manager
+LOG=/run/arch-manager/recovery-boot.log
+READY=/run/arch-manager/recovery-ready
+TARGET_FILE=/run/arch-manager/recovery-target-device
+ENGINE_MNT=/mnt/arch-manager-recovery-root
+PERSIST_REL='@snapshots/.arch-manager-recovery/boot'
+MOUNT_DIR="$RUNTIME_DIR/recovery-log-mount"
+
+mkdir_runtime() {
+    /usr/bin/install -d -o root -g root -m 0755 "$RUNTIME_DIR" 2>/dev/null || return 1
+}
+iso_stamp() {
+    /usr/bin/date -Is 2>/dev/null || /usr/bin/date
+}
+monotonic_stamp() {
+    /usr/bin/awk '{printf "%.3f", $1}' /proc/uptime 2>/dev/null || printf '?'
+}
+log_line() {
+    mkdir_runtime || return 0
+    /usr/bin/printf '[%s uptime=%ss] %s\n' "$(iso_stamp)" "$(monotonic_stamp)" "$*" >>"$LOG" 2>/dev/null || true
+}
+boot_mode() {
+    local token
+    for token in $(/usr/bin/cat /proc/cmdline 2>/dev/null); do
+        case "$token" in
+            arch_manager_local=1) printf 'local'; return 0 ;;
+            arch_manager_usb=1) printf 'usb'; return 0 ;;
+        esac
+    done
+    printf 'manual'
+}
+cmdline_value() {
+    local key=$1 token
+    for token in $(/usr/bin/cat /proc/cmdline 2>/dev/null); do
+        case "$token" in
+            "$key"=*) printf '%s' "${token#*=}"; return 0 ;;
+        esac
+    done
+    return 1
+}
+write_copy_at_mount() {
+    local mountpoint=$1 boot_id dest final tmp count=0 old
+    [[ -s "$LOG" ]] || return 1
+    [[ -d "$mountpoint/@snapshots" ]] || return 1
+    /usr/bin/btrfs subvolume show "$mountpoint/@snapshots" >/dev/null 2>&1 || return 1
+
+    dest="$mountpoint/$PERSIST_REL"
+    /usr/bin/install -d -o root -g root -m 0755 "$dest" || return 1
+    boot_id=$(/usr/bin/cat /proc/sys/kernel/random/boot_id 2>/dev/null || true)
+    [[ "$boot_id" =~ ^[0-9a-fA-F-]+$ ]] || boot_id="unknown-$$"
+    final="$dest/boot-$boot_id.log"
+    tmp="$dest/.boot-$boot_id.log.tmp.$$"
+
+    log_line "persist-path=/.snapshots/.arch-manager-recovery/boot/boot-$boot_id.log"
+    /usr/bin/cp -- "$LOG" "$tmp" || return 1
+    /usr/bin/chmod 0644 "$tmp" || true
+    /usr/bin/mv -f -- "$tmp" "$final" || return 1
+    /usr/bin/cp -f -- "$final" "$dest/last-boot.log" || true
+    /usr/bin/chmod 0644 "$dest/last-boot.log" 2>/dev/null || true
+
+    # Keep the newest 20 historical logs plus last-boot.log.
+    while IFS= read -r old; do
+        (( count += 1 ))
+        (( count <= 20 )) && continue
+        /usr/bin/rm -f -- "$old" 2>/dev/null || true
+    done < <(/usr/bin/find "$dest" -maxdepth 1 -type f -name 'boot-*.log' -printf '%T@ %p\n' 2>/dev/null \
+        | /usr/bin/sort -nr | /usr/bin/awk '{print $2}')
+    /usr/bin/sync >/dev/null 2>&1 || true
+    return 0
+}
+try_existing_engine_mount() {
+    /usr/bin/findmnt -rn --target "$ENGINE_MNT" >/dev/null 2>&1 || return 1
+    write_copy_at_mount "$ENGINE_MNT"
+}
+candidate_devices() {
+    local target uuid dev
+    if [[ -r "$TARGET_FILE" ]]; then
+        target=$(/usr/bin/head -n1 "$TARGET_FILE" 2>/dev/null || true)
+        if [[ "$target" == /dev/* && -b "$target" ]]; then
+            printf '%s\n' "$target"
+            return 0
+        fi
+    fi
+    uuid=$(cmdline_value arch_manager_root_uuid 2>/dev/null || true)
+    if [[ -n "$uuid" ]]; then
+        dev=$(/usr/bin/findfs "UUID=$uuid" 2>/dev/null || true)
+        if [[ -n "$dev" && -b "$dev" ]]; then
+            printf '%s\n' "$dev"
+            return 0
+        fi
+    fi
+    /usr/bin/lsblk -rpno NAME,FSTYPE 2>/dev/null \
+        | /usr/bin/awk '$2=="btrfs" {print $1}' \
+        | /usr/bin/awk '!seen[$0]++'
+}
+persist_log() {
+    local dev mounted=0
+    [[ -s "$LOG" ]] || return 1
+    try_existing_engine_mount && return 0
+
+    /usr/bin/rm -rf -- "$MOUNT_DIR" 2>/dev/null || true
+    /usr/bin/install -d -o root -g root -m 0700 "$MOUNT_DIR" || return 1
+    while IFS= read -r dev; do
+        [[ -n "$dev" && -b "$dev" ]] || continue
+        if /usr/bin/timeout -k 2 8 /usr/bin/mount -o rw,subvolid=5 -- "$dev" "$MOUNT_DIR" >/dev/null 2>&1; then
+            mounted=1
+            if [[ -d "$MOUNT_DIR/@" && -d "$MOUNT_DIR/@snapshots" ]] \
+                && /usr/bin/btrfs subvolume show "$MOUNT_DIR/@" >/dev/null 2>&1 \
+                && write_copy_at_mount "$MOUNT_DIR"; then
+                /usr/bin/timeout -k 2 5 /usr/bin/umount -- "$MOUNT_DIR" >/dev/null 2>&1 || true
+                /usr/bin/rmdir -- "$MOUNT_DIR" 2>/dev/null || true
+                return 0
+            fi
+            /usr/bin/timeout -k 2 5 /usr/bin/umount -- "$MOUNT_DIR" >/dev/null 2>&1 || true
+            mounted=0
+        fi
+    done < <(candidate_devices)
+    (( mounted == 0 )) || /usr/bin/timeout -k 2 5 /usr/bin/umount -- "$MOUNT_DIR" >/dev/null 2>&1 || true
+    /usr/bin/rmdir -- "$MOUNT_DIR" 2>/dev/null || true
+    return 1
+}
+append_timeout_diagnostics() {
+    log_line "watchdog-timeout diagnostics-begin"
+    {
+        printf '\n===== /proc/cmdline =====\n'
+        cat /proc/cmdline 2>&1 || true
+        printf '\n===== systemctl failed =====\n'
+        /usr/bin/timeout -k 1 5 /usr/bin/systemctl --failed --no-pager 2>&1 || true
+        printf '\n===== recovery units =====\n'
+        /usr/bin/timeout -k 1 5 /usr/bin/systemctl status --no-pager \
+            arch-manager-recovery-watchdog.service arch-manager-recovery.service 2>&1 || true
+        printf '\n===== recovery journal =====\n'
+        /usr/bin/timeout -k 1 5 /usr/bin/journalctl -b --no-pager -n 250 \
+            -u arch-manager-recovery-watchdog.service -u arch-manager-recovery.service 2>&1 || true
+        printf '\n===== lsblk =====\n'
+        /usr/bin/lsblk -f 2>&1 || true
+        printf '\n===== findmnt =====\n'
+        /usr/bin/findmnt 2>&1 || true
+        printf '\n===== dmesg tail =====\n'
+        /usr/bin/timeout -k 1 5 /usr/bin/dmesg 2>&1 | /usr/bin/tail -n 250 || true
+        printf '\n===== end diagnostics =====\n'
+    } >>"$LOG" 2>/dev/null || true
+}
+
+case "${1:-}" in
+    init)
+        mkdir_runtime || exit 0
+        /usr/bin/rm -f -- "$READY" "$TARGET_FILE" 2>/dev/null || true
+        : >"$LOG" 2>/dev/null || exit 0
+        /usr/bin/chmod 0644 "$LOG" 2>/dev/null || true
+        log_line "bootlog-init version=1.9.0 mode=$(boot_mode)"
+        log_line "kernel=$(/usr/bin/uname -r 2>/dev/null || true)"
+        log_line "cmdline=$(/usr/bin/cat /proc/cmdline 2>/dev/null || true)"
+        ;;
+    stage)
+        shift || true
+        log_line "stage=$*"
+        ;;
+    target)
+        target=${2:-}
+        if [[ "$target" == /dev/* && -b "$target" ]]; then
+            mkdir_runtime || exit 0
+            /usr/bin/printf '%s\n' "$target" >"$TARGET_FILE" 2>/dev/null || true
+            /usr/bin/chmod 0644 "$TARGET_FILE" 2>/dev/null || true
+            log_line "target-device=$target"
+        fi
+        ;;
+    ready)
+        mkdir_runtime || exit 0
+        log_line "startup-ready"
+        : >"$READY" 2>/dev/null || true
+        /usr/bin/chmod 0644 "$READY" 2>/dev/null || true
+        persist_log >/dev/null 2>&1 || log_line "persist-warning=unable-to-save-ready-log"
+        ;;
+    timeout)
+        log_line "startup-timeout=60s"
+        append_timeout_diagnostics
+        persist_log >/dev/null 2>&1 || log_line "persist-warning=unable-to-save-timeout-log"
+        ;;
+    persist)
+        persist_log
+        ;;
+    *)
+        exit 2
+        ;;
+esac
+exit 0

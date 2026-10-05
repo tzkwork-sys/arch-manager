@@ -1,0 +1,13 @@
+[Unit]
+Description=Arch Manager Recovery startup watchdog
+Before=arch-manager-recovery.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/libexec/arch-manager/recovery-bootlog init
+ExecStart=/usr/local/libexec/arch-manager/recovery-watchdog
+Restart=no
+TimeoutStopSec=3s
+
+[Install]
+WantedBy=multi-user.target
