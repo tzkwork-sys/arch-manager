@@ -624,6 +624,7 @@ class AppStorePage(NavigablePage):
             if self._selected_source() in {"all", "local"}:
                 self._queue_aur_installed(use_cache=result.cache_hit)
             self._queue_aur_search(use_cache=result.cache_hit)
+            self._queue_system_package_search(use_cache=result.cache_hit)
 
     @Slot(str, int)
     def _catalog_failed(self, message: str, generation: int) -> None:
@@ -737,6 +738,7 @@ class AppStorePage(NavigablePage):
                 self._ensure_popularity_loaded()
             self._apply_filters()
             self._queue_aur_search()
+            self._queue_system_package_search()
 
     def sidebar_selection(self) -> tuple[str, str | None]:
         """Return the contextual sidebar item represented by the current page state."""
@@ -944,6 +946,15 @@ class AppStorePage(NavigablePage):
             candidates = (item.name, item.package_base)
         return search_candidate_rank(candidates, self.search_edit.text())
 
+    @staticmethod
+    def _source_priority(item: Application | AurPackage) -> int:
+        # Official Application objects first, then AUR, then local packages.
+        if isinstance(item, AurPackage):
+            return 1
+        if item.repository == "Локальный пакет":
+            return 2
+        return 0
+
     def _sort_results(
         self,
         items: tuple[Application | AurPackage, ...],
@@ -954,14 +965,14 @@ class AppStorePage(NavigablePage):
                     items,
                     key=lambda item: (
                         self._exact_name_match_rank(item),
+                        self._source_priority(item),
                         *self._name_sort_key(item),
                     ),
                 )
             )
 
-        # pkgstats uses one percentage scale for package names from both official
-        # repositories and foreign/AUR packages. If it is unavailable, AUR-only
-        # views can still use aurweb's native Popularity/NumVotes metadata.
+        # Relevance and source safety come before popularity. This prevents a
+        # popular AUR variant from hiding an exact official package match.
         if self._popularity_scores:
             def popularity_key(item: Application | AurPackage):
                 score, count = self._pkgstats_score(item)
@@ -969,6 +980,7 @@ class AppStorePage(NavigablePage):
                 aur_votes = item.votes if isinstance(item, AurPackage) else 0
                 return (
                     self._exact_name_match_rank(item),
+                    self._source_priority(item),
                     -score,
                     -count,
                     -aur_popularity,
@@ -990,7 +1002,16 @@ class AppStorePage(NavigablePage):
                     ),
                 )
             )
-        return tuple(sorted(items, key=self._name_sort_key))
+        return tuple(
+            sorted(
+                items,
+                key=lambda item: (
+                    self._exact_name_match_rank(item),
+                    self._source_priority(item),
+                    *self._name_sort_key(item),
+                ),
+            )
+        )
 
     @Slot(str)
     def _search_changed(self, text: str) -> None:
@@ -1001,12 +1022,7 @@ class AppStorePage(NavigablePage):
             self._aur_search_timer.stop()
             term = text.strip()
             if len(term) < 2:
-                self._system_package_timer.stop()
-                self._system_package_generation += 1
-                self._system_package_loading = False
-                self._system_package_error = None
-                self._system_package_results = ()
-                self._system_package_query = ""
+                self._clear_system_package_search()
                 self._apply_filters()
                 return
             self._queue_system_package_search()
@@ -1014,6 +1030,7 @@ class AppStorePage(NavigablePage):
         if self._active_view() == "installed":
             self._search_timer.stop()
             self._aur_search_timer.stop()
+            self._clear_system_package_search()
             self._apply_filters()
             return
         term = text.strip()
@@ -1021,10 +1038,12 @@ class AppStorePage(NavigablePage):
             self._search_timer.stop()
             self._aur_search_timer.stop()
             self._invalidate_aur_search(clear_results=True)
+            self._clear_system_package_search()
             self._apply_filters()
             return
         self._search_timer.start()
         self._queue_aur_search()
+        self._queue_system_package_search()
 
     @Slot()
     def _source_changed(self, *_args) -> None:
@@ -1045,11 +1064,13 @@ class AppStorePage(NavigablePage):
         self._update_popularity_status()
         self._apply_filters()
         if view in {"installed", "updates"}:
+            self._clear_system_package_search()
             self._queue_aur_installed()
         else:
             if source in {"all", "local"}:
                 self._queue_aur_installed()
             self._queue_aur_search()
+            self._queue_system_package_search()
 
     def _view_changed(self, view: str, checked: bool) -> None:
         if self._view_switching:
@@ -1080,9 +1101,12 @@ class AppStorePage(NavigablePage):
             if self._active_view() != "catalog":
                 self._aur_search_timer.stop()
                 self._invalidate_aur_search(clear_results=False)
+                if self._active_view() != "system-packages":
+                    self._clear_system_package_search()
             self._apply_filters()
             if self._active_view() == "catalog":
                 self._queue_aur_search()
+                self._queue_system_package_search()
             elif self._active_view() in {"installed", "updates"}:
                 self._queue_aur_installed()
 
@@ -1102,6 +1126,30 @@ class AppStorePage(NavigablePage):
             self._apply_filters()
             if self._active_view() == "catalog":
                 self._queue_aur_search()
+                self._queue_system_package_search()
+
+    def _system_package_search_allowed(self, query: str | None = None) -> bool:
+        term = self.search_edit.text().strip() if query is None else str(query).strip()
+        if len(term) < 2:
+            return False
+        view = self._active_view()
+        if view == "system-packages":
+            return True
+        return (
+            view == "catalog"
+            and self._selected_source() in {"all", "official"}
+            and self.category_combo.currentData() is None
+        )
+
+    def _clear_system_package_search(self, *, clear_results: bool = True) -> None:
+        self._system_package_timer.stop()
+        self._system_package_generation += 1
+        self._system_package_loading = False
+        self._system_package_error = None
+        if clear_results:
+            self._system_package_results = ()
+            self._system_package_query = ""
+        self._sync_activity_spinner()
 
     def _queue_system_package_search(
         self,
@@ -1109,17 +1157,13 @@ class AppStorePage(NavigablePage):
         use_cache: bool = True,
         immediate: bool = False,
     ) -> None:
-        if self._active_view() != "system-packages":
-            return
         query = self.search_edit.text().strip()
-        if len(query) < 2:
-            self._system_package_timer.stop()
-            self._system_package_loading = False
-            self._system_package_results = ()
-            self._system_package_query = ""
-            self._system_package_error = None
-            self._apply_filters()
+        if not self._system_package_search_allowed(query):
+            self._clear_system_package_search()
+            if self._active_view() == "system-packages":
+                self._apply_filters()
             return
+
         self._system_package_next_use_cache = use_cache
         self._system_package_loading = True
         self._system_package_error = None
@@ -1134,10 +1178,8 @@ class AppStorePage(NavigablePage):
 
     @Slot()
     def _start_system_package_search(self) -> None:
-        if self._active_view() != "system-packages":
-            return
         query = self.search_edit.text().strip()
-        if len(query) < 2:
+        if not self._system_package_search_allowed(query):
             return
         self._system_package_generation += 1
         generation = self._system_package_generation
@@ -1176,7 +1218,7 @@ class AppStorePage(NavigablePage):
     ) -> None:
         if (
             generation != self._system_package_generation
-            or self._active_view() != "system-packages"
+            or not self._system_package_search_allowed(query)
             or query != self.search_edit.text().strip()
         ):
             return
@@ -1194,7 +1236,7 @@ class AppStorePage(NavigablePage):
     ) -> None:
         if (
             generation != self._system_package_generation
-            or self._active_view() != "system-packages"
+            or not self._system_package_search_allowed(query)
             or query != self.search_edit.text().strip()
         ):
             return
@@ -1232,6 +1274,42 @@ class AppStorePage(NavigablePage):
         if self._system_package_error is not None:
             return "Не удалось прочитать локальные системные базы пакетов."
         return "Системных пакетов по этому запросу не найдено."
+
+    def _system_package_results_for_current_query(self) -> tuple[Application, ...]:
+        query = self.search_edit.text().strip()
+        if (
+            self._active_view() == "catalog"
+            and self._system_package_search_allowed(query)
+            and self._system_package_query == query
+        ):
+            return self._system_package_results
+        return ()
+
+    @staticmethod
+    def _merge_official_search_results(
+        catalog_items: tuple[Application, ...],
+        package_items: tuple[Application, ...],
+    ) -> tuple[Application, ...]:
+        # Keep AppStream cards and add only official packages not represented there.
+        def package_keys(item: Application) -> set[str]:
+            return {
+                name.casefold()
+                for name in (item.package_name, *item.package_names)
+                if str(name or "").strip()
+            }
+
+        merged = list(catalog_items)
+        seen_packages: set[str] = set()
+        for item in catalog_items:
+            seen_packages.update(package_keys(item))
+
+        for item in package_items:
+            keys = package_keys(item)
+            if keys and keys & seen_packages:
+                continue
+            merged.append(item)
+            seen_packages.update(keys)
+        return tuple(merged)
 
     def _aur_installed_allowed(self) -> bool:
         if self._aur_service is None:
@@ -1489,10 +1567,26 @@ class AppStorePage(NavigablePage):
             if self._aur_error is not None:
                 return "Не удалось выполнить поиск AUR. Официальный каталог остаётся доступен."
             return "В AUR по этому запросу ничего не найдено."
+
+        official_package_search = (
+            source in {"all", "official"}
+            and len(query) >= 2
+            and self.category_combo.currentData() is None
+        )
+        if official_package_search and self._system_package_loading:
+            return "Ищу совпадения среди официальных пакетов Arch Linux…"
+        if (
+            source == "official"
+            and official_package_search
+            and self._system_package_error is not None
+        ):
+            return "В каталоге приложений совпадений нет; поиск официальных пакетов сейчас недоступен."
         if source == "all" and self._aur_loading:
-            return "В официальном каталоге совпадений нет. Поиск AUR ещё выполняется…"
+            return "В официальных источниках совпадений пока нет. Поиск AUR ещё выполняется…"
         if source == "all" and self._aur_error is not None:
-            return "В официальном каталоге совпадений нет; поиск AUR сейчас недоступен."
+            return "В официальных источниках совпадений нет; поиск AUR сейчас недоступен."
+        if source == "official" and official_package_search:
+            return "В официальном каталоге и пакетах Arch Linux совпадений нет."
         return "Измените запрос или категорию."
 
     @Slot()
@@ -1594,7 +1688,12 @@ class AppStorePage(NavigablePage):
         else:
             source = self._selected_source()
             aur = self._aur_results_for_current_query()
-            official = base if source in {"all", "official"} else ()
+            system_packages = self._system_package_results_for_current_query()
+            official = (
+                self._merge_official_search_results(base, system_packages)
+                if source in {"all", "official"}
+                else ()
+            )
             local = local_base if source in {"all", "local"} else ()
             self._filtered = merge_store_results(official, aur, source=source, local=local)
             self.empty_text.setText(self._catalog_empty_text())
