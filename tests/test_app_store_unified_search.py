@@ -160,3 +160,83 @@ def test_equal_relevance_prefers_official_over_more_popular_aur():
     assert ordered[0] is official
     assert ordered[1] is aur
     page.deleteLater()
+
+class DeferredSystemPackageService:
+    def __init__(self) -> None:
+        self.future: Future[tuple[Application, ...]] = Future()
+        self.calls: list[tuple[str, bool]] = []
+
+    def invalidate(self) -> None:
+        pass
+
+    def search_async(self, query: str, *, use_cache: bool = True):
+        self.calls.append((query, use_cache))
+        return self.future
+
+
+@pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed in the artifact test environment")
+def test_unified_search_surfaces_official_package_search_failure():
+    from PySide6.QtWidgets import QApplication
+    from src.gui.app_store.page import AppStorePage
+
+    app = QApplication.instance() or QApplication([])
+    system_service = DeferredSystemPackageService()
+    page = AppStorePage(
+        service=FakeCatalogService(),
+        popularity_service=FakePopularityService(),
+        system_package_service=system_service,
+    )
+    page.ensure_loaded()
+    app.processEvents()
+
+    page.search_edit.setText("github-cli")
+    page._search_timer.stop()
+    page._system_package_timer.stop()
+    page._start_system_package_search()
+    system_service.future.set_exception(RuntimeError("pacman unavailable"))
+    app.processEvents()
+    app.processEvents()
+
+    assert page.filtered_count == 0
+    assert "официальные пакеты" in page.aur_status_label.text().lower()
+    assert "недоступен" in page.aur_status_label.text().lower()
+    assert "недоступен" in page.empty_text.text().lower()
+    page.deleteLater()
+
+
+@pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed in the artifact test environment")
+def test_unified_search_ignores_stale_system_result_after_source_switch():
+    from PySide6.QtWidgets import QApplication
+    from src.gui.app_store.page import AppStorePage
+
+    app = QApplication.instance() or QApplication([])
+    system_service = DeferredSystemPackageService()
+    page = AppStorePage(
+        service=FakeCatalogService(),
+        popularity_service=FakePopularityService(),
+        system_package_service=system_service,
+    )
+    page.ensure_loaded()
+    app.processEvents()
+
+    page.search_edit.setText("github-cli")
+    page._search_timer.stop()
+    page._system_package_timer.stop()
+    page._start_system_package_search()
+    assert system_service.calls
+
+    page.source_combo.setCurrentIndex(page.source_combo.findData("aur"))
+    app.processEvents()
+    assert page._system_package_loading is False
+    assert page._system_package_results == ()
+
+    system_service.future.set_result((_github_cli_application(),))
+    app.processEvents()
+    app.processEvents()
+
+    assert page._system_package_results == ()
+    assert all(
+        not isinstance(item, Application) or item.package_name != "github-cli"
+        for item in page._filtered
+    )
+    page.deleteLater()

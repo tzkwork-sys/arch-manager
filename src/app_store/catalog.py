@@ -173,6 +173,7 @@ class AppCatalogService:
             installed_version=state.installed_version,
             installed=state.installed,
             update_available=state.update_available,
+            installed_state_known=state.installed_state_known,
             download_size=state.download_size,
             installed_size=state.installed_size,
             desktop_entry=component.desktop_entry,

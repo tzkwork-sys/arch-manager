@@ -272,7 +272,9 @@ class AurPackageDetailsDialog(QDialog):
             details.append(("Последнее изменение", modified))
         if outdated:
             details.append(("Помечен устаревшим", outdated))
-        if package.installed:
+        if not package.local_state_known:
+            details.append(("Состояние", "Локальное состояние недоступно"))
+        elif package.installed:
             state = "Установлено"
             if package.update_available:
                 state += " · доступно обновление"
@@ -352,7 +354,18 @@ class AurPackageDetailsDialog(QDialog):
 
     def _refresh_action_controls(self) -> None:
         self.remove_button.setVisible(False)
-        if self.package.installed and self.package.update_available:
+        if not self.package.local_state_known:
+            self.install_button.setText("Состояние недоступно")
+            self.install_button.setEnabled(False)
+            style_semantic_button(self.install_button, "update")
+            self.install_button.setToolTip(
+                "Не удалось прочитать локальное состояние pacman. Обновите каталог и повторите проверку."
+            )
+            self.action_note.setText(
+                "AUR-метаданные доступны, но локальное состояние пакета сейчас определить не удалось. "
+                "Установка и удаление временно заблокированы, чтобы не показывать ложное состояние."
+            )
+        elif self.package.installed and self.package.update_available:
             self.install_button.setText("Обновить через yay")
             self.install_button.setEnabled(not self._busy)
             style_semantic_button(self.install_button, "update")
@@ -393,7 +406,7 @@ class AurPackageDetailsDialog(QDialog):
 
     @Slot()
     def _package_action_requested(self) -> None:
-        if self._busy:
+        if self._busy or not self.package.local_state_known:
             return
         self._generation += 1
         generation = self._generation
@@ -413,7 +426,7 @@ class AurPackageDetailsDialog(QDialog):
 
     @Slot()
     def _remove_requested(self) -> None:
-        if self._busy or not self.package.installed:
+        if self._busy or not self.package.local_state_known or not self.package.installed:
             return
         self._generation += 1
         generation = self._generation
@@ -731,6 +744,27 @@ class AurPackageDetailsDialog(QDialog):
     def _local_state_refreshed(self, package: object, generation: int) -> None:
         if generation != self._generation or not isinstance(package, AurPackage):
             return
+        if not package.local_state_known:
+            self.package = package
+            if (
+                self._last_terminal_result is not None
+                and self._last_terminal_result.state in {"success", "cleanup-incomplete"}
+            ):
+                self.package_state_changed = True
+            self.version_label.setText(package.version)
+            self._rebuild_details_grid()
+            self._pending_action = None
+            local_state_message = (
+                "Операция завершена, но локальное состояние пакета сейчас недоступно. Обновите каталог."
+                if (
+                    self._last_terminal_result is not None
+                    and self._last_terminal_result.state in {"success", "cleanup-incomplete"}
+                )
+                else "Не удалось перечитать локальное состояние пакета. Обновите каталог."
+            )
+            self._set_busy(False, local_state_message)
+            return
+
         previously_installed = self.package.installed
         self.package = package
         if package.installed != previously_installed:

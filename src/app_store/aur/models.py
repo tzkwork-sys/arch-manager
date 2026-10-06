@@ -47,6 +47,7 @@ class AurPackage:
     update_available: bool = False
     aur_confirmed: bool = True
     foreign_unknown: bool = False
+    local_state_known: bool = True
 
     @property
     def orphaned(self) -> bool:
@@ -63,6 +64,16 @@ class AurPackage:
             installed=installed_version is not None,
             installed_version=installed_version,
             update_available=bool(update_available),
+            local_state_known=True,
+        )
+
+    def with_unknown_local_state(self) -> "AurPackage":
+        return replace(
+            self,
+            installed=False,
+            installed_version=None,
+            update_available=False,
+            local_state_known=False,
         )
 
     def to_dict(self) -> dict[str, Any]:

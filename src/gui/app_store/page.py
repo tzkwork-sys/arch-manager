@@ -1486,14 +1486,27 @@ class AppStorePage(NavigablePage):
             return "AUR: поиск недоступен"
         return ""
 
+    def _catalog_system_package_status(self) -> str:
+        query = self.search_edit.text().strip()
+        if (
+            self._active_view() == "catalog"
+            and self._system_package_search_allowed(query)
+            and self._system_package_query == query
+            and self._system_package_error is not None
+        ):
+            return "Официальные пакеты: поиск недоступен"
+        return ""
+
     def _update_aur_status(self, *, queued: bool = False) -> None:
         if self._active_view() == "system-packages":
             return
-        if self._aur_service is None:
-            self.aur_status_label.setText("")
-            return
         view = self._active_view()
         source = self._selected_source()
+        system_status = self._catalog_system_package_status()
+        if self._aur_service is None:
+            self.aur_status_label.setText(system_status)
+            self._sync_activity_spinner()
+            return
         if source == "local":
             if self._aur_installed_loading and not self._local_installed_results:
                 self.aur_status_label.setText("Локальные: определяю…")
@@ -1503,6 +1516,7 @@ class AppStorePage(NavigablePage):
                 self.aur_status_label.setText("Локальные: обновления не проверяются")
             else:
                 self.aur_status_label.setText(f"Локальные: {len(self._local_installed_results)}")
+            self._sync_activity_spinner()
             return
         if view in {"installed", "updates"}:
             if source == "official":
@@ -1517,25 +1531,29 @@ class AppStorePage(NavigablePage):
                     self.aur_status_label.setText(f"AUR: обновлений {count}")
                 else:
                     self.aur_status_label.setText(f"AUR: установлено {len(self._aur_installed_results)}")
+            self._sync_activity_spinner()
             return
         if view != "catalog":
             self.aur_status_label.setText("")
+            self._sync_activity_spinner()
             return
         term = self.search_edit.text().strip()
+        aur_status = ""
         if source == "official" or self.category_combo.currentData() is not None:
-            self.aur_status_label.setText("")
+            aur_status = ""
         elif len(term) < 2:
-            self.aur_status_label.setText("AUR: введите минимум 2 символа")
+            aur_status = "AUR: введите минимум 2 символа"
         elif self._aur_loading:
-            self.aur_status_label.setText("AUR: поиск…")
+            aur_status = "AUR: поиск…"
         elif self._aur_error is not None:
-            self.aur_status_label.setText(self._friendly_aur_error(self._aur_error))
+            aur_status = self._friendly_aur_error(self._aur_error)
         elif queued:
-            self.aur_status_label.setText("AUR: ожидает поиска…")
+            aur_status = "AUR: ожидает поиска…"
         elif self._aur_result_query == term:
-            self.aur_status_label.setText(f"AUR: {len(self._aur_results)}")
-        else:
-            self.aur_status_label.setText("")
+            aur_status = f"AUR: {len(self._aur_results)}"
+        self.aur_status_label.setText(
+            " · ".join(part for part in (system_status, aur_status) if part)
+        )
         self._sync_activity_spinner()
 
     def _aur_results_for_current_query(self) -> tuple[AurPackage, ...]:
@@ -1581,6 +1599,16 @@ class AppStorePage(NavigablePage):
             and self._system_package_error is not None
         ):
             return "В каталоге приложений совпадений нет; поиск официальных пакетов сейчас недоступен."
+        if (
+            source == "all"
+            and official_package_search
+            and self._system_package_error is not None
+        ):
+            if self._aur_loading:
+                return "Поиск официальных пакетов недоступен. Поиск AUR ещё выполняется…"
+            if self._aur_error is not None:
+                return "Поиск официальных пакетов и AUR сейчас недоступен."
+            return "Поиск официальных пакетов сейчас недоступен; в доступных источниках совпадений нет."
         if source == "all" and self._aur_loading:
             return "В официальных источниках совпадений пока нет. Поиск AUR ещё выполняется…"
         if source == "all" and self._aur_error is not None:

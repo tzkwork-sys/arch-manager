@@ -207,3 +207,51 @@ def test_main_window_exposes_system_packages_in_context_sidebar():
     source = (ROOT / "src/gui/main_window.py").read_text(encoding="utf-8")
     assert '"Системные пакеты", "system-packages"' in source
     assert '"package-x-generic"' in source
+
+def test_system_package_search_does_not_cache_unknown_installed_state():
+    counts = {"sl": 0, "q": 0}
+
+    def runner(command, **_kwargs):
+        command = tuple(command)
+        if command == ("pacman", "-Sl"):
+            counts["sl"] += 1
+            return _result(command, stdout="extra github-cli 2.102.0-1\n")
+        if command == ("pacman", "-Q"):
+            counts["q"] += 1
+            if counts["q"] == 1:
+                return _result(command, returncode=1, stderr="local database unavailable")
+            return _result(command, stdout="github-cli 2.102.0-1\n")
+        if command[:4] == ("pacman", "-Ss", "--color", "never"):
+            return _result(command, returncode=1)
+        if command[:3] == ("pacman", "-Si", "--"):
+            return _result(
+                command,
+                stdout=(
+                    "Repository      : extra\n"
+                    "Name            : github-cli\n"
+                    "Version         : 2.102.0-1\n"
+                    "Description     : The GitHub CLI\n"
+                ),
+            )
+        if command[:3] == ("pacman", "-Qi", "--"):
+            return _result(
+                command,
+                stdout=(
+                    "Name            : github-cli\n"
+                    "Version         : 2.102.0-1\n"
+                    "Installed Size  : 40.00 MiB\n"
+                ),
+            )
+        raise AssertionError(command)
+
+    service = SystemPackageSearchService(runner=runner, cache_ttl_seconds=300)
+    first = service.search("github-cli")[0]
+    assert first.installed is False
+    assert first.installed_state_known is False
+    assert first.metadata_complete is False
+    assert "installed-state-unavailable" in first.metadata_issues
+
+    second = service.search("github-cli")[0]
+    assert second.installed is True
+    assert second.installed_state_known is True
+    assert counts == {"sl": 2, "q": 2}

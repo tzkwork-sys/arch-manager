@@ -113,6 +113,7 @@ def test_search_local_state_probe_failure_does_not_break_remote_results():
 
     assert result[0].name == "demo-git"
     assert result[0].installed is False
+    assert result[0].local_state_known is False
 
 def test_foreign_package_requires_aur_info_confirmation():
     rpc = Rpc()

@@ -298,3 +298,18 @@ def test_stage72_aur_card_does_not_depend_on_official_private_text_widget():
     assert "self._render_cursor = stop" in page
     assert "except Exception:" in page
     assert "LOGGER.exception(" in page
+
+@pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed in the artifact test environment")
+def test_stage72_aur_unknown_local_state_is_not_presented_as_not_installed():
+    from PySide6.QtWidgets import QApplication
+    from src.gui.app_store.aur.widgets import AurPackageCard
+
+    app = QApplication.instance() or QApplication([])
+    package = _aur("google-chrome").with_unknown_local_state()
+    card = AurPackageCard(package)
+    assert package.installed is False
+    assert package.local_state_known is False
+    assert "Статус недоступен" in card.installed_label.text()
+    assert "#55c878" not in card.styleSheet()
+    card.deleteLater()
+    app.processEvents()

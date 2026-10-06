@@ -251,3 +251,19 @@ def test_stage3_gui_remains_read_only_and_stage2_card_geometry_is_preserved():
     assert "subprocess" not in page + details
     assert "CARD_MIN_WIDTH = 238" in widgets
     assert "CARD_HEIGHT = 154" in widgets
+
+@pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed in the artifact test environment")
+def test_stage3_unknown_install_state_is_visible_without_green_highlight():
+    app, _, ApplicationCard = _qt_types()
+    unknown = Application(
+        app_id="unknown",
+        package_name="pkg",
+        name="Unknown state",
+        installed=False,
+        installed_state_known=False,
+    )
+    card = ApplicationCard(unknown)
+    assert "Статус недоступен" in card.installed_label.text()
+    assert "#55c878" not in card.styleSheet()
+    card.deleteLater()
+    app.processEvents()

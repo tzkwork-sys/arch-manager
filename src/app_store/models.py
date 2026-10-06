@@ -44,6 +44,7 @@ class Application:
     provides_text: str = ""
     conflicts_text: str = ""
     publisher: str | None = None
+    installed_state_known: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

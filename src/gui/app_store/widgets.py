@@ -287,7 +287,9 @@ class ApplicationCard(QFrame):
         muted_text(self.category_label)
         body.addWidget(self.category_label)
 
-        if application.installed and application.update_available:
+        if not application.installed_state_known:
+            status_text = "⚠ Статус недоступен"
+        elif application.installed and application.update_available:
             old_version = application.installed_version or "…"
             new_version = application.available_version or "…"
             status_text = f"↑ {old_version} → {new_version}"
@@ -300,7 +302,14 @@ class ApplicationCard(QFrame):
         self.installed_label.setObjectName("appStoreInstalledBadge")
         installed_metrics = QFontMetrics(self.installed_label.font())
         self.installed_label.setFixedHeight(installed_metrics.lineSpacing() + 1)
-        if application.installed:
+        if not application.installed_state_known:
+            self.installed_label.setStyleSheet(
+                f"color: {UPDATE_AMBER.name()}; font-weight: 600;"
+            )
+            self.installed_label.setToolTip(
+                "Не удалось определить, установлен ли пакет. Обновите каталог и повторите проверку."
+            )
+        elif application.installed:
             badge_color = UPDATE_AMBER if application.update_available else INSTALLED_GREEN
             self.installed_label.setStyleSheet(
                 f"color: {badge_color.name()}; font-weight: 600;"
@@ -316,7 +325,7 @@ class ApplicationCard(QFrame):
         self.setStyleSheet(
             _card_highlight_stylesheet(
                 self.objectName(),
-                highlighted=application.installed,
+                highlighted=application.installed_state_known and application.installed,
             )
         )
 

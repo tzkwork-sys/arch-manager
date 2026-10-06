@@ -440,3 +440,48 @@ def test_app_store_stage1_is_isolated_from_gui_and_privileged_actions():
     # window must not reach into the toolkit-independent catalog internals.
     assert "from src.app_store" not in main_window
     assert "AppCatalogService" not in main_window
+
+def test_package_state_provider_does_not_turn_pacman_q_failure_into_known_not_installed():
+    def runner(args, *, timeout):
+        if args == ["pacman", "-Sl"]:
+            return _command(args, 0, "extra example-viewer 3.1-2\n")
+        if args == ["pacman", "-Q"]:
+            return _command(args, 1, stderr="local database unavailable")
+        if args == ["pacman", "-Qu", "--color", "never"]:
+            return _command(args, 0, "")
+        if args[:3] == ["pacman", "-Si", "--"]:
+            return _command(
+                args,
+                0,
+                "Repository      : extra\n"
+                "Name            : example-viewer\n"
+                "Version         : 3.1-2\n"
+                "Download Size   : 800.00 KiB\n"
+                "Installed Size  : 2.00 MiB\n\n",
+            )
+        raise AssertionError(args)
+
+    state = PacmanPackageStateProvider(runner=runner).collect(["example-viewer"])["example-viewer"]
+    assert state.installed is False
+    assert state.installed_state_known is False
+    assert state.metadata_complete is False
+    assert "installed-state-unavailable" in state.issues
+
+
+def test_package_state_provider_marks_missing_package_details_incomplete():
+    def runner(args, *, timeout):
+        if args == ["pacman", "-Sl"]:
+            return _command(args, 0, "extra example-viewer 3.1-2\n")
+        if args == ["pacman", "-Q"]:
+            return _command(args, 0, "")
+        if args == ["pacman", "-Qu", "--color", "never"]:
+            return _command(args, 0, "")
+        if args[:3] == ["pacman", "-Si", "--"]:
+            return _command(args, 1, stderr="package details unavailable")
+        raise AssertionError(args)
+
+    state = PacmanPackageStateProvider(runner=runner).collect(["example-viewer"])["example-viewer"]
+    assert state.available is True
+    assert state.installed_state_known is True
+    assert state.metadata_complete is False
+    assert "package-details-unavailable" in state.issues

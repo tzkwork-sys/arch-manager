@@ -160,6 +160,7 @@ def _clean_info_value(value: str | None) -> str:
 class _PackageIndexSnapshot:
     available: dict[str, tuple[str, str]]
     installed: dict[str, str]
+    installed_state_known: bool
     created_monotonic: float
 
 
@@ -217,6 +218,11 @@ class SystemPackageSearchService:
             description = _clean_info_value(info.get("Description")) or direct_description
             version = _clean_info_value(info.get("Version")) or direct_version or fallback_version
             installed_version = snapshot.installed.get(name)
+            metadata_issues: list[str] = []
+            if not snapshot.installed_state_known:
+                metadata_issues.append("installed-state-unavailable")
+            if not info:
+                metadata_issues.append("system-package-details-unavailable")
             applications.append(
                 Application(
                     app_id=f"system-package:{name}",
@@ -236,12 +242,13 @@ class SystemPackageSearchService:
                     installed_version=installed_version,
                     installed=installed_version is not None,
                     update_available=False,
+                    installed_state_known=snapshot.installed_state_known,
                     download_size=_parse_size(info.get("Download Size", "")),
                     installed_size=_parse_size(
                         installed_info.get("Installed Size") or info.get("Installed Size", "")
                     ),
-                    metadata_complete=bool(info),
-                    metadata_issues=() if info else ("system-package-details-unavailable",),
+                    metadata_complete=not metadata_issues,
+                    metadata_issues=tuple(metadata_issues),
                     metadata_source="pacman-system-package",
                     dependencies_text=_clean_info_value(info.get("Depends On")),
                     optional_dependencies_text=_clean_info_value(info.get("Optional Deps")),
@@ -260,6 +267,7 @@ class SystemPackageSearchService:
             if (
                 use_cache
                 and cached is not None
+                and cached.installed_state_known
                 and now - cached.created_monotonic <= self.cache_ttl_seconds
             ):
                 return cached
@@ -272,8 +280,9 @@ class SystemPackageSearchService:
         available = _parse_sync_list(sync.stdout)
 
         installed_result = self.runner(["pacman", "-Q"], timeout=30)
-        installed = _parse_installed(installed_result.stdout) if installed_result.ok else {}
-        snapshot = _PackageIndexSnapshot(available, installed, now)
+        installed_state_known = installed_result.ok
+        installed = _parse_installed(installed_result.stdout) if installed_state_known else {}
+        snapshot = _PackageIndexSnapshot(available, installed, installed_state_known, now)
         with self._lock:
             self._snapshot = snapshot
         return snapshot

@@ -574,7 +574,17 @@ class ApplicationDetailsDialog(QDialog):
 
     def _refresh_package_controls(self) -> None:
         is_system_package = self.application.metadata_source == "pacman-system-package"
-        if self.application.installed:
+        if not self.application.installed_state_known:
+            self.status_label.setText("Состояние установки недоступно")
+            self.status_label.setStyleSheet(
+                f"color: {UPDATE_AMBER.name()}; font-weight: 600;"
+            )
+            self.action_button.setText("Состояние недоступно")
+            self.action_button.setToolTip(
+                "Arch Manager не смог прочитать локальное состояние pacman. Обновите каталог и повторите проверку."
+            )
+            style_semantic_button(self.action_button, "update")
+        elif self.application.installed:
             self.status_label.setText("✓ Установлено")
             self.status_label.setStyleSheet(
                 f"color: {INSTALLED_GREEN.name()}; font-weight: 600;"
@@ -598,8 +608,7 @@ class ApplicationDetailsDialog(QDialog):
             )
             style_semantic_button(self.action_button, "install")
 
-        # Пакетное действие доступно для объектов магазина и установленных пакетов.
-        # Минимальные служебные записи без каталожного идентификатора остаются просмотром.
+        # Пакетное действие доступно только при достоверно прочитанном локальном состоянии.
         has_catalog_identity = bool(
             self.application.package_name
             and (
@@ -611,10 +620,16 @@ class ApplicationDetailsDialog(QDialog):
             )
         )
         self.action_button.setEnabled(
-            not self._package_busy and has_catalog_identity
+            not self._package_busy
+            and self.application.installed_state_known
+            and has_catalog_identity
         )
 
-        launchable = self.application.installed and can_launch_application(self.application)
+        launchable = (
+            self.application.installed_state_known
+            and self.application.installed
+            and can_launch_application(self.application)
+        )
         self.launch_button.setVisible(launchable)
         self.launch_button.setEnabled(launchable and not self._package_busy)
         if hasattr(self, "close_button"):
@@ -636,7 +651,7 @@ class ApplicationDetailsDialog(QDialog):
 
     @Slot()
     def _package_action_requested(self) -> None:
-        if self._package_busy:
+        if self._package_busy or not self.application.installed_state_known:
             return
         request = (
             build_remove_request(self.application.package_name)
@@ -752,6 +767,7 @@ class ApplicationDetailsDialog(QDialog):
                 installed=True,
                 installed_version=self.application.available_version,
                 update_available=False,
+                installed_state_known=True,
             )
         elif action_value == "remove":
             self.application = replace(
@@ -759,6 +775,7 @@ class ApplicationDetailsDialog(QDialog):
                 installed=False,
                 installed_version=None,
                 update_available=False,
+                installed_state_known=True,
             )
         self.package_state_changed = True
         self._pending_package_action = None

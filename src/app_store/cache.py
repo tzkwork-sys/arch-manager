@@ -12,7 +12,7 @@ from typing import Iterable, Mapping, Any
 from .models import Application
 
 
-CACHE_SCHEMA_VERSION = 3
+CACHE_SCHEMA_VERSION = 4
 
 
 _MEMORY_CATALOG_LIMIT = 2

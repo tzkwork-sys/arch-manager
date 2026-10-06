@@ -26,6 +26,7 @@ class PackageState:
     available: bool = False
     metadata_complete: bool = True
     issues: tuple[str, ...] = ()
+    installed_state_known: bool = True
 
 
 def _valid_package_name(name: str) -> bool:
@@ -145,12 +146,22 @@ class PacmanPackageStateProvider:
         sync_result = self.runner(["pacman", "-Sl"], timeout=30)
         if not sync_result.available:
             return {
-                name: PackageState(name, metadata_complete=False, issues=("pacman-unavailable",))
+                name: PackageState(
+                    name,
+                    metadata_complete=False,
+                    issues=("pacman-unavailable",),
+                    installed_state_known=False,
+                )
                 for name in requested
             }
         if sync_result.timed_out or sync_result.returncode != 0:
             return {
-                name: PackageState(name, metadata_complete=False, issues=("sync-database-unavailable",))
+                name: PackageState(
+                    name,
+                    metadata_complete=False,
+                    issues=("sync-database-unavailable",),
+                    installed_state_known=False,
+                )
                 for name in requested
             }
         available = _parse_sync_list(sync_result.stdout, self.repositories)
@@ -216,9 +227,15 @@ class PacmanPackageStateProvider:
                 available=name in available,
                 metadata_complete=not any(
                     issue in issues
-                    for issue in ("sync-database-unavailable", "installed-state-unavailable", "update-state-unavailable")
+                    for issue in (
+                        "sync-database-unavailable",
+                        "installed-state-unavailable",
+                        "update-state-unavailable",
+                        "package-details-unavailable",
+                    )
                 ),
                 issues=tuple(issues),
+                installed_state_known=installed_state_known,
             )
         return states
 

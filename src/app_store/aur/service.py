@@ -105,7 +105,7 @@ class AurService:
         try:
             foreign = self.foreign_reader.read()
         except AurError:
-            return items
+            return tuple(package.with_unknown_local_state() for package in items)
 
         installed_versions = {item.name: item.installed_version for item in foreign}
 

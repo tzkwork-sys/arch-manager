@@ -190,7 +190,14 @@ class AurPackageCard(QFrame):
             )
         state_row.addWidget(self.warning_label, 1)
 
-        if package.installed and package.update_available:
+        if not package.local_state_known:
+            installed_text = "⚠ Статус недоступен"
+            installed_color = UPDATE_AMBER
+            installed_tooltip = (
+                "Не удалось прочитать локальное состояние pacman. "
+                "Карточка не считает пакет установленным или неустановленным до повторной проверки."
+            )
+        elif package.installed and package.update_available:
             installed_text = "↑ Обновление"
             installed_color = UPDATE_AMBER
             installed_tooltip = (
@@ -221,7 +228,7 @@ class AurPackageCard(QFrame):
         self.setStyleSheet(
             _card_highlight_stylesheet(
                 self.objectName(),
-                highlighted=package.installed,
+                highlighted=package.local_state_known and package.installed,
             )
         )
 
