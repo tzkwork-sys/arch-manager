@@ -255,8 +255,10 @@ class UpdatesPage(NavigablePage):
         status_font.setPointSize(status_font.pointSize() + 1)
         status_font.setBold(True)
         self.status_label.setFont(status_font)
-        self.status_label.setWordWrap(True)
-        row.addWidget(self.status_label)
+        # Основной статус должен оставаться одной строкой: объём загрузки
+        # не должен некрасиво переноситься отдельно от количества обновлений.
+        self.status_label.setWordWrap(False)
+        row.addWidget(self.status_label, 1)
 
         self.status_note = QLabel("")
         self.status_note.setWordWrap(True)
@@ -411,7 +413,17 @@ class UpdatesPage(NavigablePage):
         label, status, note = _status_for_count(details.total, details.partial)
         download_summary = self._download_summary(details)
         if details.total and download_summary:
-            label = f"{label} ({download_summary})"
+            # Для обычного случая с официальными пакетами показываем общий
+            # объём компактно, без длинной конструкции в скобках.
+            if details.aur.count == 0 and details.official.items:
+                known_bytes = sum(item.download_size or 0 for item in details.official.items)
+                known_count = sum(item.download_size is not None for item in details.official.items)
+                if known_count == len(details.official.items):
+                    label = f"{label} · Скачать: {format_bytes(known_bytes)}"
+                else:
+                    label = f"{label} · {download_summary}"
+            else:
+                label = f"{label} · {download_summary}"
         self.status_badge.set_status(status, note)
         self.status_label.setText(label)
         self._set_status_note(note if details.partial else "")
