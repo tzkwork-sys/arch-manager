@@ -4,7 +4,7 @@
   <p>Обновления, приложения и обслуживание Arch Linux — в одном окне.</p>
   <p><strong>0.7.0-beta.1 · Предварительная версия · Python / Qt</strong></p>
   <p>
-    <a href="https://github.com/tzkwork-sys/arch-manager/releases/tag/v0.7.0-beta.1">Скачать бета-версию</a> ·
+    <a href="https://github.com/tzkwork-sys/arch-manager/releases/download/v0.7.0-beta.1/arch-manager-0.7.0beta1-1-any.pkg.tar.zst"><strong>⬇ Скачать для Arch Linux (.pkg.tar.zst)</strong></a> ·
     <a href="docs/INSTALL.md">Установка</a> ·
     <a href="CHANGELOG.md">Изменения</a> ·
     <a href="CONTRIBUTING.md">Участие в разработке</a> ·
@@ -21,6 +21,25 @@
 > **Статус выпуска:** первая публичная бета-версия `0.7.0-beta.1`.
 > Проверка установки на чистой системе и испытания Recovery ещё впереди.
 > Это не обещание стабильности или поддержки любой конфигурации Arch.
+
+## Скачать для Arch Linux
+
+**Готовый установочный пакет для Arch Linux x86_64 (KDE Plasma и другие окружения с Polkit).**
+
+**[⬇ Скачать Arch Manager 0.7.0 Beta — пакет Pacman (.pkg.tar.zst)](https://github.com/tzkwork-sys/arch-manager/releases/download/v0.7.0-beta.1/arch-manager-0.7.0beta1-1-any.pkg.tar.zst)**
+
+[Скачать контрольные суммы SHA-256](https://github.com/tzkwork-sys/arch-manager/releases/download/v0.7.0-beta.1/SHA256SUMS.txt) · [Все файлы выпуска и исходники](https://github.com/tzkwork-sys/arch-manager/releases/tag/v0.7.0-beta.1)
+
+Это **бета-версия**. После скачивания обоих файлов откройте терминал в папке загрузок:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS.txt
+sudo pacman -Syu
+sudo pacman -U ./arch-manager-0.7.0beta1-1-any.pkg.tar.zst
+arch-manager-gui --check
+```
+
+Запускайте **Arch Manager** через меню приложений **без sudo**. Если ранее устанавливали Arch Manager из исходников, **не выполняйте `pacman -U` до проверки конфликта старых helpers и ярлыков** — [инструкция перехода](packaging/arch/README.md#переход-с-установки-из-исходников). Recovery в пакет не входит.
 
 ## Скриншоты
 
@@ -69,28 +88,12 @@ GUI работает от обычного пользователя. Для си
 ## Начало работы
 
 **Целевая система:** Arch Linux x86_64. Основное окружение разработки — KDE Plasma.
-Нужны Python, PySide6, графический агент Polkit и поддерживаемый терминал
-(например, Konsole). AUR, Snapper и Recovery — дополнительные возможности со
-своими зависимостями, а не обязательное условие запуска всего приложения.
+Установочный пакет и команды приведены в разделе **«Скачать для Arch Linux»**.
+Python, PySide6 и необходимые системные зависимости устанавливаются через Pacman.
+Для AUR нужен `yay`, для Snapper — настроенная конфигурация; Recovery — отдельная экспериментальная подсистема.
 
-1. Скачайте `arch-manager-0.7.0beta1-1-any.pkg.tar.zst` и `SHA256SUMS.txt` со
-   [страницы выпуска](https://github.com/tzkwork-sys/arch-manager/releases/tag/v0.7.0-beta.1).
-2. В папке загрузки выполните:
-
-   ```bash
-   sha256sum --check --ignore-missing SHA256SUMS.txt
-   sudo pacman -Syu
-   sudo pacman -U ./arch-manager-0.7.0beta1-1-any.pkg.tar.zst
-   arch-manager-gui --check
-   ```
-
-3. Откройте **Arch Manager** в меню приложений или запустите `arch-manager-gui`
-   **без sudo**. Основные системные компоненты уже входят в пакет.
-
-Дополнительные зависимости, переход с установки из исходников, сборка,
-обновление и удаление описаны в [руководстве пакета Arch](packaging/arch/README.md).
-**Recovery не входит в пакет и автоматически не включается.**
-Альтернативная установка из исходников сохранена в [INSTALL.md](docs/INSTALL.md).
+Подробности, переход с установки из исходников, сборка и удаление — в [руководстве пакета Arch](packaging/arch/README.md).
+Альтернативная установка из исходников описана в [INSTALL.md](docs/INSTALL.md).
 
 ## Важно о восстановлении
 
