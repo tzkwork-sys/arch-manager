@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies in the disposable build container
         run: >-
-          pacman -Syu --noconfirm --needed python pyside6 pacman-contrib sudo polkit
+          pacman -Syu --noconfirm --needed python pyside6 qt6-svg pacman-contrib fakeroot sudo polkit
           appstream xterm hicolor-icon-theme python-pytest desktop-file-utils
       - name: Build as an unprivileged user
         run: |
@@ -27,6 +27,19 @@ jobs:
           cd packaging/arch
           runuser -u builder -- makepkg --cleanbuild --noconfirm
           runuser -u builder -- bash -c 'makepkg --printsrcinfo | diff - .SRCINFO'
+      - name: Install, reinstall and remove only in the disposable container
+        run: |
+          pacman -U --noconfirm packaging/arch/arch-manager-*.pkg.tar.zst
+          runuser -u builder -- arch-manager-gui --check
+          runuser -u builder -- arch-manager-gui --version
+          pacman -Qkk arch-manager
+          pacman -U --noconfirm packaging/arch/arch-manager-*.pkg.tar.zst
+          pacman -R --noconfirm arch-manager
+          test ! -e /usr/bin/arch-manager-gui
+          test ! -L /usr/bin/arch-manager-enable-snapper-read
+          test ! -e /usr/lib/arch-manager/manage-applications
+          test ! -e /usr/share/polkit-1/actions/org.archmanager.manage-applications.policy
+          test ! -e /usr/share/polkit-1/rules.d/00-arch-manager.rules
       - uses: actions/upload-artifact@v4
         with:
           name: arch-manager-package

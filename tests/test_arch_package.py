@@ -29,6 +29,8 @@ def test_package_recipe_syntax_and_immutable_source():
     assert "SKIP" not in recipe and "PLACEHOLDER" not in recipe
     assert "pkgver=0.7.0beta1" in recipe
     assert "'xterm'" in recipe
+    assert "'fakeroot'" in recipe
+    assert "'qt6-svg'" in recipe
     assert "install-stage" not in recipe
     assert "manage-recovery" not in (RECIPE / "arch-manager.rules").read_text()
     sums = re.findall(r"'([0-9a-f]{64})'", recipe)

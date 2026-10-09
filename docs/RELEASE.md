@@ -1,19 +1,27 @@
-# Release candidate 0.7.0-beta.1
+# Release validation — 0.7.0-beta.1
 
-License: GPL-3.0-only. This is a candidate, not a published or certified release.
+License: GPL-3.0-only. Published as a prerelease beta, not a validated stable release.
 
 ## Deferred system validation
 
 The owner has deferred stage 4 because a separate Arch test installation is not
-available. Clean-system installation, actual package changes, interrupted helper
+available. Desktop/VM installation, actual GUI package changes, interrupted helper
 updates, local rollback and physical USB/UEFI boot have **not** been validated
-for this candidate. If released, it must remain a **prerelease beta**, explicitly
+for this version. It must remain a **prerelease beta**, explicitly
 disclosing these gaps. This is not approval for a stable release or for relying
 on Recovery on a production machine without an independent backup.
 
-A draft release does not change repository visibility or publish the candidate.
+## Arch package revision 1
 
-Before publication:
+`packaging/arch/` builds `arch-manager-0.7.0beta1-1-any.pkg.tar.zst` from the
+unchanged release source archive plus checksum-pinned packaging adapters.
+The Arch CI workflow builds as an ordinary user with declared dependencies,
+runs upstream tests and isolated Qt checks, and checks package installation,
+reinstallation, launcher and removal in a disposable container. This does not
+validate desktop Polkit authentication, GUI package changes or system recovery.
+The base package does not include or enable the Recovery helper.
+
+Before a stable release:
 
 - Run all tests, Python compilation, Bash syntax checks and desktop validation.
 - Install from a clean source archive on a separate Arch Linux x86_64 machine.
@@ -27,7 +35,7 @@ Before publication:
 - Inspect the entire Git history for secrets/private data before making it public.
 - Configure protected main, required CI and contribution/review policy on GitHub.
 
-Current installation is source-based, not an Arch package. Dependency versions
+Both an Arch package and alternative source installation are provided. Dependency versions
 tested during development: Python 3.14, PySide6 6.12 and pytest 9.1. Compatibility
 with other versions requires CI and installation testing. GPL applies to this
 project; external dependencies retain their own licenses. Confirm provenance of

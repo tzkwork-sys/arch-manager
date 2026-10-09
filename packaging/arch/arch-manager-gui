@@ -18,7 +18,7 @@ def check_environment() -> int:
         errors.append("Application files are missing; reinstall the arch-manager package.")
     if importlib.util.find_spec("PySide6") is None:
         errors.append("PySide6 is missing; install the pyside6 dependency.")
-    for name in ("pacman", "sudo", "pkexec", "checkupdates", "appstreamcli"):
+    for name in ("pacman", "sudo", "pkexec", "checkupdates", "fakeroot", "appstreamcli"):
         if not Path("/usr/bin", name).is_file():
             errors.append(f"Required command is missing: {name}")
     if not any(shutil.which(name) for name in TERMINALS):

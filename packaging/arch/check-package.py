@@ -57,6 +57,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError("System subprocess is forbidden in package smoke tests")
 with patch('subprocess.Popen', forbidden), patch('os.system', forbidden), patch('PySide6.QtCore.QProcess.start', forbidden), patch('PySide6.QtCore.QProcess.startDetached', forbidden), patch.object(DashboardPage, 'refresh', lambda self: None):
     app = create_application([])
+    assert not app.windowIcon().pixmap(32, 32).isNull(), 'Qt SVG icon support is missing'
     window = MainWindow()
     window.show()
     assert window.windowTitle() == 'Arch Manager'

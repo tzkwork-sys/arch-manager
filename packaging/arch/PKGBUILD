@@ -6,8 +6,8 @@ pkgdesc='Graphical Arch Linux manager: packages, updates, Snapper and maintenanc
 arch=('any')
 url='https://github.com/tzkwork-sys/arch-manager'
 license=('GPL-3.0-only')
-depends=('python' 'pyside6>=6.7' 'pacman' 'pacman-contrib' 'sudo' 'polkit'
-         'appstream' 'xterm' 'hicolor-icon-theme')
+depends=('python' 'pyside6>=6.7' 'qt6-svg' 'pacman' 'pacman-contrib' 'fakeroot'
+         'sudo' 'polkit' 'appstream' 'xterm' 'hicolor-icon-theme')
 optdepends=('yay: AUR applications and updates'
             'snapper: snapshot management (requires an existing root configuration)'
             'btrfs-progs: Btrfs snapshot management'
@@ -16,7 +16,8 @@ optdepends=('yay: AUR applications and updates'
             'polkit-kde-agent: graphical authentication in KDE Plasma'
             'polkit-gnome: graphical authentication in other desktops'
             'konsole: preferred terminal in KDE Plasma'
-            'meld: graphical comparison of pacnew configuration files')
+            'vim: default pacdiff comparison tool'
+            'meld: alternative pacdiff viewer (configure DIFFPROG)')
 checkdepends=('python-pytest' 'desktop-file-utils')
 options=('!debug' '!strip')
 _release=0.7.0-beta.1
@@ -26,11 +27,11 @@ source=("${_upstream}-source.tar.gz::${url}/releases/download/v${_release}/${_up
         'arch-manager.rules' 'check-package.py' 'README.md')
 sha256sums=('7116dcf211b5d722dcd0e877ca9cb75a9e8036724cff3f525c4d2e57d111169e'
             '813b5a2e654e5472b113966904c85a49763416d00b8852c879602313bb61bc70'
-            '1ce51531d0e7226cdbad6d37eb15e3f5e63d5a5c4d838a2d7063133b33d3201f'
+            'd9c1213d5efeccdb4acd04c0c581140ffccc1fa35c940a8ae00a2abd43faa118'
             '9475065bcd9a1621e6268aa029676940527c7bf1ac172ffd11d5b15814ba0a94'
             '944fb9a24c6758c27585bb94620d294c3ce73365d5d627dd3ca1a337985c20ad'
-            '50b5da3fa7f2db6e6aaf462c4fa572a79716184b477bb81ef8dd98d4ff881d6e'
-            'ddae3d1ce577999915dfeb65aea89df5964440ded5684039757e9b428bed4dee')
+            '972f26f55b0e354395a693092616507b2cbbdba6662f3063e10b446270e1df4f'
+            '621cfced89f7807f33b50fb3386bdced4e48ae7dd76b63ee7b125d12d307c0c3')
 
 prepare() {
     # Keep the upstream tree untouched for its source-contract tests.
