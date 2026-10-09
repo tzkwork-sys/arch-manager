@@ -61,7 +61,7 @@ class SummaryCard(QPushButton):
 
         self.title_label = QLabel(title)
         title_font = self.title_label.font()
-        title_font.setPointSize(title_font.pointSize() + 3)
+        title_font.setPointSize(title_font.pointSize() + 1)
         title_font.setBold(True)
         self.title_label.setFont(title_font)
         header.addWidget(self.title_label)
@@ -78,12 +78,18 @@ class SummaryCard(QPushButton):
 
         self.value_label = QLabel(value)
         value_font = self.value_label.font()
-        value_font.setPointSize(value_font.pointSize() + 1)
+        value_font.setPointSize(value_font.pointSize() + 3)
         value_font.setBold(True)
         self.value_label.setFont(value_font)
         self.value_label.setWordWrap(True)
 
-        self.open_label = QLabel("Открыть раздел  →")
+        transitions = {
+            "Обновления": "Посмотреть обновления →",
+            "Восстановление": "Открыть восстановление →",
+            "Обслуживание": "Выбрать очистку →",
+            "Система": "Посмотреть диагностику →",
+        }
+        self.open_label = QLabel(transitions.get(title, "Подробнее →"))
         muted_text(self.open_label)
 
         layout.addLayout(header)

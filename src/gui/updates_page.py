@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QPoint, QRunnable, QSettings, QThreadPool, Qt, Signal, Slot
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -178,6 +178,9 @@ class UpdatesPage(NavigablePage):
         self._thread_pool = QThreadPool.globalInstance()
         self._check_worker: _UpdatesWorker | None = None
         self._package_info_worker: _PackageInfoWorker | None = None
+        self._info_item: UpdateItem | None = None
+        self._package_info_target: UpdateItem | None = None
+        self._package_info_cache: dict[UpdateItem, PackageInfo] = {}
         self._details: UpdateDetails | None = None
         self._loaded_once = False
         self._aur_selection: dict[str, bool] = {}
@@ -207,6 +210,7 @@ class UpdatesPage(NavigablePage):
         layout.addWidget(self.checked_label)
         self._build_status_row(layout)
         self._build_table(layout)
+        self._build_package_details(layout)
         self._load_last_report()
 
     def _build_toolbar(self, layout: QVBoxLayout) -> None:
@@ -301,18 +305,27 @@ class UpdatesPage(NavigablePage):
         return "; ".join(parts)
 
     def _build_table(self, layout: QVBoxLayout) -> None:
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["Выбор", "Пакет", "Установлено", "Доступно", "Скачать", "Источник  ▾", ""]
+            ["Выбор", "Пакет", "Установлено", "Доступно", "Скачать", "Источник  ▾"]
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setAlternatingRowColors(True)
+        palette = self.table.palette()
+        base = palette.color(QPalette.ColorRole.Base)
+        text = palette.color(QPalette.ColorRole.Text)
+        alternate = QColor(*(round(a * 0.96 + b * 0.04) for a, b in zip(
+            (base.red(), base.green(), base.blue()), (text.red(), text.green(), text.blue())
+        )))
+        palette.setColor(QPalette.ColorRole.AlternateBase, alternate)
+        self.table.setPalette(palette)
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(36)
         self.table.itemChanged.connect(self._selection_changed)
+        self.table.currentCellChanged.connect(self._show_selected_package)
 
         self.source_header = _SourceFilterHeader(5, self.table)
         self.table.setHorizontalHeader(self.source_header)
@@ -326,8 +339,45 @@ class UpdatesPage(NavigablePage):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.table, 1)
+
+    def _build_package_details(self, layout: QVBoxLayout) -> None:
+        self.package_details_toggle = QToolButton()
+        self.package_details_toggle.setText("Подробности пакета — выберите строку")
+        self.package_details_toggle.setCheckable(True)
+        self.package_details_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.package_details_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.package_details_toggle.setEnabled(False)
+        self.package_details_toggle.toggled.connect(self._toggle_package_details)
+        layout.addWidget(self.package_details_toggle)
+        self.package_details_card = card_frame()
+        body = QVBoxLayout(self.package_details_card)
+        body.setContentsMargins(*CARD_MARGINS)
+        self.package_details_text = QPlainTextEdit()
+        self.package_details_text.setReadOnly(True)
+        self.package_details_text.setFrameShape(QFrame.Shape.NoFrame)
+        self.package_details_text.setMinimumHeight(100)
+        self.package_details_text.setMaximumHeight(180)
+        body.addWidget(self.package_details_text)
+        self.package_details_card.hide()
+        layout.addWidget(self.package_details_card)
+
+    def _toggle_package_details(self, expanded: bool) -> None:
+        self.package_details_toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        self.package_details_card.setVisible(expanded and self._info_item is not None)
+        if expanded and self._info_item is not None:
+            self._request_package_info(self._info_item)
+
+    def _show_selected_package(self, *_args) -> None:
+        if self._rebuilding_table:
+            return
+        cell = self.table.item(self.table.currentRow(), 1)
+        self._info_item = cell.data(Qt.ItemDataRole.UserRole) if cell else None
+        item = self._info_item
+        self.package_details_toggle.setEnabled(item is not None)
+        self.package_details_toggle.setText(f"Подробности пакета: {item.name}" if item else "Подробности пакета — выберите строку")
+        self.package_details_text.setPlainText("Загружаю локальное описание…" if item else "")
+        self._toggle_package_details(self.package_details_toggle.isChecked())
 
     def ensure_loaded(self) -> None:
         if not self._loaded_once and not self._busy():
@@ -483,24 +533,19 @@ class UpdatesPage(NavigablePage):
                 )
                 for column, value in enumerate(values, start=1):
                     cell = QTableWidgetItem(value)
+                    if column == 1:
+                        cell.setData(Qt.ItemDataRole.UserRole, item)
                     if column == 4:
                         cell.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     self.table.setItem(row, column, cell)
 
-                info_button = QToolButton()
-                info_button.setText("ⓘ")
-                info_button.setToolTip(f"Описание пакета {item.name}")
-                info_button.setAutoRaise(True)
-                info_button.clicked.connect(
-                    lambda checked=False, package=item: self._request_package_info(package)
-                )
-                self.table.setCellWidget(row, 6, info_button)
             # Не ограничиваем таблицу искусственно десятью строками.
             # Она занимает всё доступное место страницы, а встроенная прокрутка
             # появляется только когда список действительно не помещается в окно.
             self.table.setMaximumHeight(16777215)
         finally:
             self._rebuilding_table = False
+            self._show_selected_package()
 
     @Slot(QTableWidgetItem)
     def _selection_changed(self, item: QTableWidgetItem) -> None:
@@ -849,9 +894,13 @@ class UpdatesPage(NavigablePage):
         dialog.exec()
 
     def _request_package_info(self, item: UpdateItem) -> None:
+        if item in self._package_info_cache:
+            self._display_package_info(item, self._package_info_cache[item])
+            return
         if self._package_info_worker is not None:
             return
         worker = _PackageInfoWorker(item)
+        self._package_info_target = item
         self._package_info_worker = worker
         worker.signals.completed.connect(self._package_info_loaded)
         worker.signals.failed.connect(self._package_info_failed)
@@ -865,10 +914,16 @@ class UpdatesPage(NavigablePage):
         item, info = payload
         if not isinstance(item, UpdateItem) or not isinstance(info, PackageInfo):
             return
+        self._package_info_cache[item] = info
+        if item != self._info_item:
+            if self._info_item is not None and self.package_details_toggle.isChecked():
+                self._request_package_info(self._info_item)
+            return
+        self._display_package_info(item, info)
+
+    def _display_package_info(self, item: UpdateItem, info: PackageInfo) -> None:
         source = _source_label(item.source)
-        QMessageBox.information(
-            self,
-            f"Пакет: {info.name}",
+        self.package_details_text.setPlainText(
             f"{info.description}\n\n"
             f"Источник обновления: {source}\n"
             f"Установлено: {item.current_version}\n"
@@ -882,11 +937,11 @@ class UpdatesPage(NavigablePage):
     @Slot(object)
     def _package_info_failed(self, error: object) -> None:
         self._package_info_worker = None
-        QMessageBox.warning(
-            self,
-            "Описание пакета",
-            f"Не удалось получить локальное описание пакета.\n\n{error}",
-        )
+        if self._package_info_target != self._info_item:
+            if self._info_item is not None and self.package_details_toggle.isChecked():
+                self._request_package_info(self._info_item)
+            return
+        self.package_details_text.setPlainText(f"Не удалось получить локальное описание пакета.\n{error}")
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         self.refresh_button.setEnabled(enabled and self._check_worker is None)

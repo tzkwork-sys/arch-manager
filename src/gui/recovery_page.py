@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from PySide6.QtCore import QThreadPool, QTimer, Qt
 from PySide6.QtWidgets import (
-    QButtonGroup,
+    QTabBar,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -74,29 +74,14 @@ class RecoveryPage(RecoveryUsbMixin, NavigablePage):
             )
 
         self._active_mode = "local"
-        self.mode_group = QButtonGroup(self)
-        self.mode_group.setExclusive(True)
-        mode_row = QHBoxLayout()
-        mode_row.setContentsMargins(0, 0, 0, 0)
-        mode_row.setSpacing(8)
-
-        self.local_mode_button = QPushButton("Локальное восстановление")
-        self.local_mode_button.setCheckable(True)
-        self.local_mode_button.setChecked(True)
-        self.local_mode_button.setMinimumHeight(38)
-        self.local_mode_button.setToolTip("Однократная загрузка Recovery-среды с внутреннего диска")
-        self.local_mode_button.clicked.connect(lambda: self._set_recovery_mode("local"))
-        self.mode_group.addButton(self.local_mode_button)
-        mode_row.addWidget(self.local_mode_button, 1)
-
-        self.usb_mode_button = QPushButton("Аварийная USB-флешка")
-        self.usb_mode_button.setCheckable(True)
-        self.usb_mode_button.setMinimumHeight(38)
-        self.usb_mode_button.setToolTip("Создание Recovery-флешки и однократная загрузка с неё")
-        self.usb_mode_button.clicked.connect(lambda: self._set_recovery_mode("usb"))
-        self.mode_group.addButton(self.usb_mode_button)
-        mode_row.addWidget(self.usb_mode_button, 1)
-        outer.addLayout(mode_row)
+        self.mode_tabs = QTabBar()
+        self.mode_tabs.setExpanding(False)
+        self.mode_tabs.addTab("Локальное восстановление")
+        self.mode_tabs.addTab("Аварийная USB-флешка")
+        self.mode_tabs.setTabToolTip(0, "Однократная загрузка Recovery-среды с внутреннего диска")
+        self.mode_tabs.setTabToolTip(1, "Создание Recovery-флешки и однократная загрузка с неё")
+        self.mode_tabs.currentChanged.connect(lambda index: self._set_recovery_mode("local" if index == 0 else "usb"))
+        outer.addWidget(self.mode_tabs)
 
         self.recovery_stack = QStackedWidget()
         self.recovery_stack.setSizePolicy(
@@ -335,11 +320,12 @@ class RecoveryPage(RecoveryUsbMixin, NavigablePage):
         if mode not in {"local", "usb"}:
             return
         self._active_mode = mode
+        self.mode_tabs.blockSignals(True)
+        self.mode_tabs.setCurrentIndex(0 if mode == "local" else 1)
+        self.mode_tabs.blockSignals(False)
         if mode == "local":
-            self.local_mode_button.setChecked(True)
             self.recovery_stack.setCurrentWidget(self.local_mode_page)
         else:
-            self.usb_mode_button.setChecked(True)
             self.recovery_stack.setCurrentWidget(self.usb_mode_page)
             if (
                 self._usb_scan_worker is None
@@ -556,8 +542,7 @@ class RecoveryPage(RecoveryUsbMixin, NavigablePage):
             or self._broken_delete_worker is not None
         )
         readiness = self._readiness
-        self.local_mode_button.setEnabled(not busy)
-        self.usb_mode_button.setEnabled(not busy)
+        self.mode_tabs.setEnabled(not busy)
         self.refresh_button.setEnabled(not busy)
         self.info_button.setEnabled(not busy)
         self.old_roots_button.setEnabled(

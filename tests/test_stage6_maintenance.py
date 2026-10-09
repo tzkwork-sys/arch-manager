@@ -221,7 +221,7 @@ def test_cleanup_bar_is_outside_scroll_and_journal_size_is_labeled_total():
     source = PAGE.read_text(encoding="utf-8")
     assert 'layout.addWidget(scroll, 1)' in source
     assert source.index('layout.addWidget(scroll, 1)') < source.index('layout.addWidget(action_card)')
-    assert 'f"{format_bytes(journal_bytes)} всего"' in source
+    assert 'f"Общий размер: {format_bytes(journal_bytes)}"' in source
     assert 'Без учёта журналов можно освободить примерно' in source
 
 

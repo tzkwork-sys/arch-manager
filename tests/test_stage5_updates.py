@@ -46,12 +46,12 @@ def test_stage5_backend_checks_official_and_aur_without_privilege_escalation():
 
 def test_stage5_gui_has_compact_selectable_table_info_and_refresh():
     source = PAGE.read_text(encoding="utf-8")
-    assert '["Выбор", "Пакет", "Установлено", "Доступно", "Скачать", "Источник  ▾", ""]' in source
+    assert '["Выбор", "Пакет", "Установлено", "Доступно", "Скачать", "Источник  ▾"]' in source
     assert "search_edit" not in source
     assert 'class _SourceFilterHeader(QHeaderView)' in source
     assert '("Официальные", "official")' in source
     assert '("AUR", "aur")' in source
-    assert 'info_button.setText("ⓘ")' in source
+    assert "self._build_package_details(layout)" in source
     assert "ItemIsUserCheckable" in source
     assert "collect_installed_package_info" in source
     assert 'self.refresh_button = QPushButton("Проверить обновления")' in source

@@ -164,11 +164,10 @@ def test_recovery_profile_contains_current_archiso_boot_dependencies():
 def test_recovery_gui_uses_one_mode_selector_and_one_visible_stack():
     page = recovery_page_source(ROOT)
     center = (ROOT / "src/gui/recovery_center_page.py").read_text(encoding="utf-8")
-    assert 'QPushButton("Локальное восстановление")' in page
-    assert 'QPushButton("Аварийная USB-флешка")' in page
-    assert "QButtonGroup" in page and "QStackedWidget" in page
-    assert 'self._set_recovery_mode("local")' in page
-    assert 'self._set_recovery_mode("usb")' in page
+    assert 'self.mode_tabs.addTab("Локальное восстановление")' in page
+    assert 'self.mode_tabs.addTab("Аварийная USB-флешка")' in page
+    assert "QTabBar" in page and "QStackedWidget" in page
+    assert "self.mode_tabs.currentChanged.connect" in page
     assert "self.recovery_stack.setCurrentWidget(self.local_mode_page)" in page
     assert "self.recovery_stack.setCurrentWidget(self.usb_mode_page)" in page
     assert 'QLabel("Способ восстановления")' in center
@@ -255,4 +254,3 @@ def test_usb_sha256_readback_has_real_progress_too():
     assert 'tenths=$((850 + (bytes * 125 / iso_size)))' in helper
     assert 'set_usb_progress 85 "85.0% — Проверяю записанную флешку по SHA-256…"' in helper
     assert 'set_usb_progress 100 "100.0% — Recovery-флешка записана и проверена."' in helper
-

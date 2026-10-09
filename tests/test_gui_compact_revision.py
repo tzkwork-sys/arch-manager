@@ -30,7 +30,7 @@ def test_updates_use_header_actions_consistent_selection_and_compact_table():
     assert 'layout = self.create_page_layout("Обновления")' in source
     assert "self.add_header_action(self.refresh_button)" in source
     assert "self.add_header_action(self.install_button)" in source
-    assert 'info_button.setText("ⓘ")' in source
+    assert "self.table.currentCellChanged.connect(self._show_selected_package)" in source
     assert "choice.setCheckState(Qt.CheckState.Checked)" in source
     assert "visible_rows = max(2, min(len(items), 10))" not in source
     assert "self.table.setMaximumHeight(16777215)" in source

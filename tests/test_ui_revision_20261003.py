@@ -32,7 +32,7 @@ def test_overview_cards_are_whole_clickable_status_outlined_buttons_and_timestam
     source = DASHBOARD.read_text(encoding="utf-8")
     assert "class SummaryCard(QPushButton):" in source
     assert 'border: 2px solid {color.name()}' in source
-    assert 'self.open_label = QLabel("Открыть раздел  →")' in source
+    assert '"Обновления": "Посмотреть обновления →"' in source
     assert source.index("root.addWidget(self.checked_label)") < source.index("root.addLayout(grid)")
     assert "self._refresh_pending = True" in source
 
@@ -60,7 +60,7 @@ def test_update_download_size_parser_and_item_are_backward_compatible():
 def test_updates_table_has_integrated_source_filter_and_download_column():
     source = UPDATES_PAGE.read_text(encoding="utf-8")
     assert "class _SourceFilterHeader(QHeaderView):" in source
-    assert '["Выбор", "Пакет", "Установлено", "Доступно", "Скачать", "Источник  ▾", ""]' in source
+    assert '["Выбор", "Пакет", "Установлено", "Доступно", "Скачать", "Источник  ▾"]' in source
     assert "self.source_combo" not in source
     assert '"Все источники", "all"' in source
     assert '"официальные: {format_bytes(known_bytes)}"' in source

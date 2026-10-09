@@ -29,7 +29,8 @@ def test_stage4_6_progress_card_exists_for_long_running_create():
 def test_stage4_6_display_numbers_are_ui_order_not_snapper_ids():
     source = restore_points_page_source(ROOT)
     assert 'QTableWidget(0, 6)' in source
-    assert '["№", "Название точки восстановления", "Дата", "Причина", "Статус", ""]' in source
+    assert '["№", "Название", "Дата", "Причина", "Тип", ""]' in source
+    assert "self.table.setColumnHidden(3, True)" in source
     assert 'str(row + 1)' in source
     assert 'def _display_index_for_point_number' in source
     assert 'Технический Snapper ID:' in source

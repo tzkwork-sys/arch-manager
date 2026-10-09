@@ -250,13 +250,15 @@ class RestorePointsPage(RestorePointActionsMixin, NavigablePage):
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["№", "Название точки восстановления", "Дата", "Причина", "Статус", ""]
+            ["№", "Название", "Дата", "Причина", "Тип", ""]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
+        # Keep the reason in the model/tooltips, without repeating it as a column.
+        self.table.setColumnHidden(3, True)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.itemSelectionChanged.connect(self._selection_changed)
@@ -649,16 +651,19 @@ class RestorePointsPage(RestorePointActionsMixin, NavigablePage):
         for row, point in enumerate(points):
             values = (
                 str(row + 1),
-                point.display_name,
+                point.display_name.removeprefix("Arch Manager: "),
                 format_datetime(point.created_at),
                 point.reason,
-                "★" if point.important else "Обычная",
+                "★ Важная" if point.important else "Обычная",
             )
             for column, text in enumerate(values):
                 item = QTableWidgetItem(text)
                 if column == 1:
                     item.setData(Qt.ItemDataRole.UserRole, point.number)
-                if point.important and column in (1, 4):
+                    item.setToolTip(f"{point.display_name}\nПричина: {point.reason}")
+                if column == 4:
+                    item.setToolTip("Важная точка: отдельный лимит хранения в политике Snapper." if point.important else "Обычная точка восстановления.")
+                if point.important and column == 4:
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)

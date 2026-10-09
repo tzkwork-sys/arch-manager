@@ -63,7 +63,9 @@ def test_overview_shares_header_and_timestamp_position(app, monkeypatch):
     assert page.check_button.property("archManagerPrimary") is True
     page.resize(1280, 800)
     page.show()
-    app.processEvents()
+    # Activate only this layout; processing the global queue can start delayed
+    # OS inspections left by other GUI tests.
+    page.layout().activate()
     assert all(card.height() >= 142 for card in page._cards.values())
     assert page.updates_card.value_label.isVisible()
     page.hide()

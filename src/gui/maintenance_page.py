@@ -142,13 +142,7 @@ class _MaintenanceOption(QFrame):
     ) -> None:
         super().__init__(parent)
         del cautious
-        template = card_frame()
-        self.setFrameShape(template.frameShape())
-        self.setFrameShadow(template.frameShadow())
-        self.setLineWidth(template.lineWidth())
-        self.setBackgroundRole(template.backgroundRole())
-        self.setAutoFillBackground(True)
-        self.setProperty("archManagerCard", True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
 
         self.default_checked = default_checked
         self._initial_selection_applied = False
@@ -156,7 +150,7 @@ class _MaintenanceOption(QFrame):
         self._details_text = "—"
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(*CARD_MARGINS)
+        root.setContentsMargins(18, 12, 18, 12)
         root.setSpacing(7)
 
         heading = QHBoxLayout()
@@ -174,12 +168,25 @@ class _MaintenanceOption(QFrame):
         self.info_button.setToolTip(f"Подробнее: {title}")
         self.info_button.setAutoRaise(True)
         self.info_button.setFixedSize(28, 28)
-        self.info_button.clicked.connect(self._show_info)
+        self.info_button.setCheckable(True)
+        self.info_button.setArrowType(Qt.ArrowType.RightArrow)
+        self.info_button.toggled.connect(self._set_expanded)
 
         heading.addWidget(self.checkbox, 1)
         heading.addWidget(self.value, 0, Qt.AlignmentFlag.AlignRight)
         heading.addWidget(self.info_button, 0, Qt.AlignmentFlag.AlignRight)
         root.addLayout(heading)
+
+        self.details_body = QWidget()
+        details_layout = QVBoxLayout(self.details_body)
+        details_layout.setContentsMargins(0, 0, 0, 0)
+        self.details_label = QLabel(description)
+        self.details_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.details_label.setWordWrap(True)
+        muted_text(self.details_label)
+        details_layout.addWidget(self.details_label)
+        root.addWidget(self.details_body)
+        self.details_body.hide()
 
     def add_control(self, label: str, widget: QWidget) -> None:
         row = QHBoxLayout()
@@ -189,15 +196,20 @@ class _MaintenanceOption(QFrame):
         row.addWidget(caption)
         row.addWidget(widget, 0)
         row.addStretch(1)
-        layout = self.layout()
+        layout = self.details_body.layout()
         if isinstance(layout, QVBoxLayout):
             layout.addLayout(row)
 
     def _show_info(self) -> None:
+        self.info_button.setChecked(not self.info_button.isChecked())
+
+    def _set_expanded(self, expanded: bool) -> None:
+        self.info_button.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        self.details_body.setVisible(expanded)
         text = self._description_text
         if self._details_text and self._details_text != "—":
             text += "\n\n" + self._details_text
-        QMessageBox.information(self, self.checkbox.text(), text)
+        self.details_label.setText(text)
 
     def set_state(
         self,
@@ -208,6 +220,7 @@ class _MaintenanceOption(QFrame):
     ) -> None:
         self.value.setText(value)
         self._details_text = details
+        self._set_expanded(self.info_button.isChecked())
         self.checkbox.setEnabled(enabled)
         if not enabled:
             self.checkbox.setChecked(False)
@@ -285,7 +298,12 @@ class MaintenancePage(NavigablePage):
         body = QWidget()
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(8)
+        body_layout.setSpacing(12)
+        self.options_card = card_frame()
+        options_layout = QVBoxLayout(self.options_card)
+        options_layout.setContentsMargins(0, 0, 0, 0)
+        options_layout.setSpacing(0)
+        body_layout.addWidget(self.options_card)
 
         self.options: dict[MaintenanceAction, _MaintenanceOption] = {
             MaintenanceAction.PACKAGE_CACHE: _MaintenanceOption(
@@ -334,9 +352,16 @@ class MaintenancePage(NavigablePage):
             "Оставлять в кэше:", self.cache_keep_combo
         )
 
-        for option in self.options.values():
+        for index, option in enumerate(self.options.values()):
+            if index:
+                separator = QFrame()
+                separator.setFrameShape(QFrame.Shape.HLine)
+                separator.setFrameShadow(QFrame.Shadow.Plain)
+                separator.setFixedHeight(1)
+                separator.setStyleSheet("QFrame { background-color: palette(mid); border: none; }")
+                options_layout.addWidget(separator)
             option.changed.connect(self._update_selection_summary)
-            body_layout.addWidget(option)
+            options_layout.addWidget(option)
 
         config_card = card_frame()
         config_layout = QVBoxLayout(config_card)
@@ -528,7 +553,7 @@ class MaintenancePage(NavigablePage):
         journal.checkbox.setProperty("hasData", journal_enabled)
         journal.set_state(
             enabled=journal_enabled,
-            value=("Нет данных" if journal_bytes is None else f"{format_bytes(journal_bytes)} всего"),
+            value=("Нет данных" if journal_bytes is None else f"Общий размер: {format_bytes(journal_bytes)}"),
             details=(
                 "Это общий размер активных и архивных журналов. Очистка затронет только архивы старше 30 дней."
                 if journal_enabled
