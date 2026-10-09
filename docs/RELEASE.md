@@ -2,6 +2,17 @@
 
 License: GPL-3.0-only. This is a candidate, not a published or certified release.
 
+## Deferred system validation
+
+The owner has deferred stage 4 because a separate Arch test installation is not
+available. Clean-system installation, actual package changes, interrupted helper
+updates, local rollback and physical USB/UEFI boot have **not** been validated
+for this candidate. If released, it must remain a **prerelease beta**, explicitly
+disclosing these gaps. This is not approval for a stable release or for relying
+on Recovery on a production machine without an independent backup.
+
+A draft release does not change repository visibility or publish the candidate.
+
 Before publication:
 
 - Run all tests, Python compilation, Bash syntax checks and desktop validation.

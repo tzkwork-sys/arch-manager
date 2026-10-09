@@ -8,7 +8,7 @@ BASE="${XDG_DATA_HOME:-$HOME/.local/share}/arch-manager/versions"
 mkdir -p -- "$BASE"
 DEST=$(mktemp -d "$BASE/release.XXXXXX")
 # Copy only the application distribution, not Git metadata, caches or backups.
-for entry in main.py src scripts recovery packaging desktop requirements.txt README.md LICENSE docs; do
+for entry in main.py src scripts recovery packaging desktop requirements.txt README.md LICENSE COPYING docs; do
     cp -a -- "$PROJECT_DIR/$entry" "$DEST/"
 done
 bash "$DEST/scripts/install-stage1.sh"

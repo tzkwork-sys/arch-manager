@@ -91,7 +91,7 @@ def test_user_install_copies_distribution_before_launcher(tmp_path):
     project.mkdir()
     for name in ("src", "scripts", "recovery", "packaging", "desktop", "docs"):
         (project / name).mkdir()
-    for name in ("main.py", "requirements.txt", "README.md", "LICENSE"):
+    for name in ("main.py", "requirements.txt", "README.md", "LICENSE", "COPYING"):
         (project / name).write_text("fixture")
     (project / "scripts/install.sh").write_text((ROOT / "scripts/install.sh").read_text())
     (project / "scripts/install-stage1.sh").write_text(
