@@ -22,6 +22,33 @@
 > Проверка установки на чистой системе и испытания Recovery ещё впереди.
 > Это не обещание стабильности или поддержки любой конфигурации Arch.
 
+## Скриншоты
+
+### Обзор
+
+![Обзор Arch Manager](docs/screenshots/overview.png)
+
+<details>
+<summary>Ещё скриншоты: приложения, восстановление, обслуживание и система</summary>
+
+### Приложения
+
+![Каталог приложений Arch Manager](docs/screenshots/applications.png)
+
+### Восстановление
+
+![Точки восстановления и экспериментальный Recovery](docs/screenshots/recovery.png)
+
+### Обслуживание
+
+![Обслуживание системы в Arch Manager](docs/screenshots/maintenance.png)
+
+### Система
+
+![Системные сведения и диагностика Arch Manager](docs/screenshots/system.png)
+
+</details>
+
 ## Возможности
 
 | Раздел | Что можно делать |
