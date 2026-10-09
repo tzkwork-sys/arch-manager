@@ -3,6 +3,15 @@
 This is a preliminary release for Arch Linux x86_64. KDE Plasma is the primary
 desktop tested during development. Do not run the GUI as root.
 
+## Arch package (recommended for ordinary users)
+
+The release now also provides `arch-manager-0.7.0beta1-1-any.pkg.tar.zst` and
+a reproducible PKGBUILD bundle. See
+[package installation, migration and build instructions](../packaging/arch/README.md).
+The package installs ordinary system helpers together with the GUI, managed by
+pacman. Recovery is not included/enabled. The remaining sections below describe
+the alternative **source installation**, not steps to run over the Arch package.
+
 ## Dependencies
 
 Install official dependencies with a **full system upgrade**, not `pacman -Sy`:

@@ -1,0 +1,100 @@
+# Maintainer: tzkwork-sys <https://github.com/tzkwork-sys>
+pkgname=arch-manager
+pkgver=0.7.0beta1
+pkgrel=1
+pkgdesc='Graphical Arch Linux manager: packages, updates, Snapper and maintenance (beta)'
+arch=('any')
+url='https://github.com/tzkwork-sys/arch-manager'
+license=('GPL-3.0-only')
+depends=('python' 'pyside6>=6.7' 'pacman' 'pacman-contrib' 'sudo' 'polkit'
+         'appstream' 'xterm' 'hicolor-icon-theme')
+optdepends=('yay: AUR applications and updates'
+            'snapper: snapshot management (requires an existing root configuration)'
+            'btrfs-progs: Btrfs snapshot management'
+            'smartmontools: SMART disk diagnostics'
+            'nvme-cli: additional NVMe diagnostics'
+            'polkit-kde-agent: graphical authentication in KDE Plasma'
+            'polkit-gnome: graphical authentication in other desktops'
+            'konsole: preferred terminal in KDE Plasma'
+            'meld: graphical comparison of pacnew configuration files')
+checkdepends=('python-pytest' 'desktop-file-utils')
+options=('!debug' '!strip')
+_release=0.7.0-beta.1
+_upstream="arch-manager-${_release}"
+source=("${_upstream}-source.tar.gz::${url}/releases/download/v${_release}/${_upstream}-source.tar.gz"
+        'prepare-layout.py' 'arch-manager-gui' 'enable-snapper-read.sh'
+        'arch-manager.rules' 'check-package.py' 'README.md')
+sha256sums=('7116dcf211b5d722dcd0e877ca9cb75a9e8036724cff3f525c4d2e57d111169e'
+            '813b5a2e654e5472b113966904c85a49763416d00b8852c879602313bb61bc70'
+            '1ce51531d0e7226cdbad6d37eb15e3f5e63d5a5c4d838a2d7063133b33d3201f'
+            '9475065bcd9a1621e6268aa029676940527c7bf1ac172ffd11d5b15814ba0a94'
+            '944fb9a24c6758c27585bb94620d294c3ce73365d5d627dd3ca1a337985c20ad'
+            '851f0200327aefcb9fdc946242a665fce9967af7fcdaae8d91faa5b543ba3650'
+            '794d64e0db8813df5b6d3524af641f6b67476d4e4d6e468da0fbb5bdffc7592e')
+
+prepare() {
+    # Keep the upstream tree untouched for its source-contract tests.
+    if [[ -d "$srcdir/packaged-source" ]]; then
+        rm -r -- "$srcdir/packaged-source"
+    fi
+    cp -a "$srcdir/$_upstream" "$srcdir/packaged-source"
+    python "$srcdir/prepare-layout.py" "$srcdir/packaged-source"
+}
+
+check() {
+    cd "$srcdir/$_upstream"
+    QT_QPA_PLATFORM=offscreen python -m pytest -q
+    python "$srcdir/check-package.py" "$srcdir/packaged-source" --source
+    desktop-file-validate desktop/arch-manager-gui.desktop
+    bash -n "$srcdir/enable-snapper-read.sh"
+}
+
+package() {
+    local appdir="$pkgdir/usr/share/arch-manager"
+    local helperdir="$pkgdir/usr/lib/arch-manager"
+    local name source_name
+    install -dm755 "$appdir" "$helperdir"
+    cp -a "$srcdir/packaged-source/src" "$appdir/"
+    install -m644 "$srcdir/packaged-source/main.py" "$appdir/main.py"
+    # Bytecode/cache files and unused Recovery engines are not distributed.
+    find "$appdir" -type d -name __pycache__ -prune -exec rm -r -- '{}' +
+    find "$appdir" -type f -name '*.py[co]' -delete
+    rm -r -- "$appdir/src/privileged"
+
+    install -dm755 "$appdir/scripts"
+    for name in run-aur-operation.sh run-aur-terminal.sh run-pacdiff-session.sh \
+                run-system-update-session.sh run-system-update-terminal.sh; do
+        install -m755 "$srcdir/packaged-source/scripts/$name" "$appdir/scripts/$name"
+    done
+    install -m755 "$srcdir/enable-snapper-read.sh" \
+        "$appdir/scripts/setup-restore-points-read-access.sh"
+    install -Dm755 "$srcdir/arch-manager-gui" "$pkgdir/usr/bin/arch-manager-gui"
+    ln -s /usr/share/arch-manager/scripts/setup-restore-points-read-access.sh \
+        "$pkgdir/usr/bin/arch-manager-enable-snapper-read"
+
+    for name in manage-applications manage-maintenance manage-restore-points \
+                read-restore-points read-system-diagnostics; do
+        source_name="${name//-/_}"
+        if [[ $name == read-system-diagnostics ]]; then
+            source_name+='.py'
+        else
+            source_name+='.sh'
+        fi
+        install -m755 "$srcdir/packaged-source/src/privileged/$source_name" "$helperdir/$name"
+    done
+    for name in manage-applications manage-maintenance manage-restore-points read-system-diagnostics; do
+        install -Dm644 "$srcdir/packaged-source/packaging/polkit/org.archmanager.$name.policy" \
+            "$pkgdir/usr/share/polkit-1/actions/org.archmanager.$name.policy"
+    done
+    install -Dm644 "$srcdir/arch-manager.rules" \
+        "$pkgdir/usr/share/polkit-1/rules.d/00-arch-manager.rules"
+    install -Dm644 "$srcdir/packaged-source/desktop/arch-manager-gui.desktop" \
+        "$pkgdir/usr/share/applications/arch-manager-gui.desktop"
+    install -Dm644 "$srcdir/packaged-source/src/assets/arch-manager.svg" \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/arch-manager-gui.svg"
+    install -Dm644 "$srcdir/$_upstream/COPYING" "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+    install -Dm644 "$srcdir/$_upstream/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/$pkgname/ARCH_PACKAGE.md"
+    install -Dm644 "$srcdir/$_upstream/docs/INSTALL.md" "$pkgdir/usr/share/doc/$pkgname/SOURCE_INSTALL.md"
+    python "$srcdir/check-package.py" "$pkgdir"
+}

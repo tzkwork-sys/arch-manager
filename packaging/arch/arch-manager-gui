@@ -1,0 +1,62 @@
+#!/usr/bin/python -I
+"""System launcher; ignore PYTHONPATH and the current directory."""
+import importlib.util
+import os
+from pathlib import Path
+import shutil
+import stat
+import sys
+
+APP_DIR = Path("/usr/share/arch-manager")
+HELPER_DIR = Path("/usr/lib/arch-manager")
+TERMINALS = ("konsole", "gnome-terminal", "xfce4-terminal", "kitty", "alacritty", "foot", "xterm")
+
+
+def check_environment() -> int:
+    errors = []
+    if not (APP_DIR / "main.py").is_file():
+        errors.append("Application files are missing; reinstall the arch-manager package.")
+    if importlib.util.find_spec("PySide6") is None:
+        errors.append("PySide6 is missing; install the pyside6 dependency.")
+    for name in ("pacman", "sudo", "pkexec", "checkupdates", "appstreamcli"):
+        if not Path("/usr/bin", name).is_file():
+            errors.append(f"Required command is missing: {name}")
+    if not any(shutil.which(name) for name in TERMINALS):
+        errors.append("No supported terminal found; install xterm or Konsole.")
+    for name in ("manage-applications", "manage-maintenance", "manage-restore-points", "read-system-diagnostics"):
+        path = HELPER_DIR / name
+        try:
+            info = path.lstat()
+        except OSError:
+            errors.append(f"Required helper is missing: {path}")
+            continue
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+                or info.st_mode & 0o022 or not info.st_mode & 0o111):
+            errors.append(f"Unsafe helper ownership or permissions: {path}")
+    for error in errors:
+        print(f"ERROR: {error}", file=sys.stderr)
+    if not errors:
+        print("Required package files, dependencies and helper permissions: OK")
+    print("A running graphical Polkit agent and administrator authorization are required.")
+    print("AUR requires yay; Snapper requires an existing root configuration.")
+    print("Recovery is not enabled by this package.")
+    return 1 if errors else 0
+
+
+def main() -> int:
+    if sys.argv[1:] == ["--check"]:
+        return check_environment()
+    if os.geteuid() == 0:
+        print("Run Arch Manager as your desktop user, not root.", file=sys.stderr)
+        return 2
+    sys.path.insert(0, str(APP_DIR))
+    if sys.argv[1:] == ["--version"]:
+        from src import __version__
+        print(f"Arch Manager {__version__}")
+        return 0
+    from src.app import main as run_application
+    return run_application()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

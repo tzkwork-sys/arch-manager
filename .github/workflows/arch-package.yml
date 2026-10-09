@@ -1,0 +1,33 @@
+name: Arch package
+on:
+  push:
+    paths: ['packaging/arch/**', 'tests/test_arch_package.py', '.github/workflows/arch-package.yml']
+  pull_request:
+    paths: ['packaging/arch/**', 'tests/test_arch_package.py', '.github/workflows/arch-package.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies in the disposable build container
+        run: >-
+          pacman -Syu --noconfirm --needed python pyside6 pacman-contrib sudo polkit
+          appstream xterm hicolor-icon-theme python-pytest desktop-file-utils
+      - name: Build as an unprivileged user
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          cd packaging/arch
+          runuser -u builder -- makepkg --cleanbuild --noconfirm
+          runuser -u builder -- bash -c 'makepkg --printsrcinfo | diff - .SRCINFO'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-manager-package
+          path: packaging/arch/*.pkg.tar.zst
+          if-no-files-found: error

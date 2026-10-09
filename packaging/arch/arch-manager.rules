@@ -1,0 +1,18 @@
+// Package-owned rules: no machine-specific usernames and no cached authorization.
+polkit.addRule(function(action, subject) {
+    var programs = {
+        "org.archmanager.manage-applications": "/usr/lib/arch-manager/manage-applications",
+        "org.archmanager.manage-maintenance": "/usr/lib/arch-manager/manage-maintenance",
+        "org.archmanager.manage-restore-points": "/usr/lib/arch-manager/manage-restore-points",
+        "org.archmanager.read-system-diagnostics": "/usr/lib/arch-manager/read-system-diagnostics"
+    };
+    var program = programs[action.id];
+    if (program === undefined) {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (action.lookup("program") !== program || action.lookup("user") !== "root" ||
+        subject.local !== true || subject.active !== true) {
+        return polkit.Result.NO;
+    }
+    return polkit.Result.AUTH_ADMIN;
+});
