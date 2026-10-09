@@ -29,8 +29,8 @@ sha256sums=('7116dcf211b5d722dcd0e877ca9cb75a9e8036724cff3f525c4d2e57d111169e'
             '1ce51531d0e7226cdbad6d37eb15e3f5e63d5a5c4d838a2d7063133b33d3201f'
             '9475065bcd9a1621e6268aa029676940527c7bf1ac172ffd11d5b15814ba0a94'
             '944fb9a24c6758c27585bb94620d294c3ce73365d5d627dd3ca1a337985c20ad'
-            '851f0200327aefcb9fdc946242a665fce9967af7fcdaae8d91faa5b543ba3650'
-            '794d64e0db8813df5b6d3524af641f6b67476d4e4d6e468da0fbb5bdffc7592e')
+            '50b5da3fa7f2db6e6aaf462c4fa572a79716184b477bb81ef8dd98d4ff881d6e'
+            'ddae3d1ce577999915dfeb65aea89df5964440ded5684039757e9b428bed4dee')
 
 prepare() {
     # Keep the upstream tree untouched for its source-contract tests.

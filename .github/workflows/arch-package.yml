@@ -13,6 +13,7 @@ jobs:
     container: archlinux:base-devel
     env:
       QT_QPA_PLATFORM: offscreen
+      PACKAGER: tzkwork-sys
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies in the disposable build container

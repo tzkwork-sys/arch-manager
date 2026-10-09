@@ -55,7 +55,7 @@ from src.gui.lifecycle import shutdown_application_widgets
 assert __version__ == "0.7.0-beta.1"
 def forbidden(*args, **kwargs):
     raise AssertionError("System subprocess is forbidden in package smoke tests")
-with patch('subprocess.Popen', forbidden), patch('os.system', forbidden), patch.object(DashboardPage, 'refresh', lambda self: None):
+with patch('subprocess.Popen', forbidden), patch('os.system', forbidden), patch('PySide6.QtCore.QProcess.start', forbidden), patch('PySide6.QtCore.QProcess.startDetached', forbidden), patch.object(DashboardPage, 'refresh', lambda self: None):
     app = create_application([])
     window = MainWindow()
     window.show()
