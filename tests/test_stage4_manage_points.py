@@ -76,8 +76,8 @@ def test_stage4_8_docs_mark_restore_point_crud_complete():
 
 
 def test_stage4_8_version_bumped():
-    assert '__version__ = "0.6.1-stage6"' in VERSION.read_text(encoding="utf-8")
-    assert '0.6.1-stage6' in README.read_text(encoding="utf-8")
+    assert '__version__ = "0.7.0-beta.1"' in VERSION.read_text(encoding="utf-8")
+    assert '0.7.0-beta.1' in README.read_text(encoding="utf-8")
 
 
 def test_stage4_8_refresh_failure_does_not_claim_successful_mutation_never_happened():

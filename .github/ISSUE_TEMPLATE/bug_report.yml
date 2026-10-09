@@ -1,0 +1,36 @@
+name: Ошибка
+description: Сообщить о воспроизводимой ошибке приложения
+body:
+  - type: markdown
+    attributes:
+      value: "Не прикладывайте пароли, токены и приватные данные. Уязвимости сообщайте по SECURITY.md."
+  - type: input
+    id: version
+    attributes:
+      label: Версия приложения или коммит
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Окружение
+      description: "Arch Linux, рабочий стол, Python/PySide6; для Recovery — схема дисков и загрузчик без личных идентификаторов."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Ожидаемый и фактический результат
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Журнал или скриншоты
+      description: "Предварительно удалите личные данные. Укажите, была ли отменена авторизация или прервана операция."

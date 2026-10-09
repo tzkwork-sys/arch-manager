@@ -416,7 +416,7 @@ def test_installer_replaces_fixed_profile_tree_idempotently():
     installer = Path("scripts/install-stage7-recovery-helper.sh").read_text(encoding="utf-8")
     assert 'RECOVERY_STAGE=' in installer and '"$RECOVERY_STAGE/archiso"' in installer
     assert '"$RECOVERY_RESOURCES/archiso/archiso"' not in installer
-    assert 'rm -rf -- "$RECOVERY_RESOURCES"' in installer
+    assert 'mv -- "$RECOVERY_RESOURCES" "$RECOVERY_BACKUP"' in installer
 
 
 def test_helper_rejects_iso_on_root_filesystem():

@@ -90,7 +90,7 @@ def test_stage5_2_aur_updates_are_selectable_in_table():
 
 
 def test_stage5_2_version_and_docs():
-    assert '__version__ = "0.6.1-stage6"' in VERSION.read_text(encoding="utf-8")
+    assert '__version__ = "0.7.0-beta.1"' in VERSION.read_text(encoding="utf-8")
     text = STAGE5.read_text(encoding="utf-8")
     assert "ANSI" in text
     assert "перезагруз" in text.casefold()

@@ -28,7 +28,7 @@ def test_installer_deploys_privileged_modules_and_active_recovery_engine():
     assert 'SOURCE_RECOVERY="$PROJECT_DIR/recovery/engine/arch-recovery.sh"' in installer
     assert 'SOURCE_HELPER_LIB="$PROJECT_DIR/src/privileged/recovery_lib"' in installer
     assert "HELPER_LIB='/usr/local/libexec/arch-manager/recovery_lib'" in installer
-    assert 'install -o root -g root -m 0644 "$SOURCE_HELPER_LIB/$module" "$HELPER_LIB/$module"' in installer
+    assert 'install -o root -g root -m 0644 "$SOURCE_HELPER_LIB/$module" "$HELPER_LIB_STAGE/$module"' in installer
 
 
 def test_legacy_recovery_entry_is_only_a_compatibility_wrapper():
@@ -47,4 +47,3 @@ def test_recovery_page_resolves_bootnext_capability_probe():
         "from src.core.recovery_usb import "
         "RecoveryUsbDevice, uefi_usb_bootnext_available"
     ) in source
-

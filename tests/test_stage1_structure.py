@@ -36,8 +36,8 @@ def test_stage2_dashboard_replaces_stage1_placeholders():
 def test_new_gui_launcher_is_distinct_from_legacy_name():
     desktop = (ROOT / "desktop" / "arch-manager-gui.desktop").read_text(encoding="utf-8")
     installer = (ROOT / "scripts" / "install-stage1.sh").read_text(encoding="utf-8")
-    assert "Name=Arch Manager — новая версия" in desktop
-    assert "Arch Manager — новая версия.desktop" in installer
+    assert "Name=Arch Manager\n" in desktop
+    assert "Arch Manager.desktop" in installer
 
 
 def test_gui_icon_installation_is_distinct_and_robust():
@@ -46,4 +46,4 @@ def test_gui_icon_installation_is_distinct_and_robust():
     assert repair.is_file()
     assert "arch-manager-gui.svg" in installer
     assert "Icon=$ICON_FILE" in installer
-    assert "Arch Manager — новая версия.desktop" in installer
+    assert "Arch Manager.desktop" in installer

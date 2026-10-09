@@ -16,14 +16,14 @@ cat > "$DESKTOP_FILE" <<EOF2
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Arch Manager — новая версия
+Name=Arch Manager
 GenericName=Управление системой Arch Linux
 Comment=Обновления, точки восстановления и обслуживание Arch Linux
 Exec=$LAUNCHER
 TryExec=$LAUNCHER
 Icon=$ICON_FILE
 Terminal=false
-Categories=System;Settings;
+Categories=System;
 Keywords=Arch;updates;restore;maintenance;system;
 StartupNotify=true
 StartupWMClass=arch-manager-gui
@@ -31,8 +31,8 @@ EOF2
 chmod +x "$DESKTOP_FILE"
 
 if [[ -n "$DESKTOP_DIR" && -d "$DESKTOP_DIR" ]]; then
-    install -m 0755 "$DESKTOP_FILE" "$DESKTOP_DIR/Arch Manager — новая версия.desktop"
-    touch "$DESKTOP_DIR/Arch Manager — новая версия.desktop"
+    install -m 0755 "$DESKTOP_FILE" "$DESKTOP_DIR/Arch Manager.desktop"
+    touch "$DESKTOP_DIR/Arch Manager.desktop"
 fi
 
 command -v update-desktop-database >/dev/null 2>&1 \

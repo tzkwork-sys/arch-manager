@@ -223,7 +223,7 @@ def test_stage4_9_remains_documented_as_complete_after_stage5():
     stage4 = (ROOT / "docs" / "STAGE_4.md").read_text(encoding="utf-8")
     state = (ROOT / "docs" / "CURRENT_STATE.md").read_text(encoding="utf-8")
     plan = (ROOT / "PROJECT_PLAN.md").read_text(encoding="utf-8")
-    assert '__version__ = "0.6.1-stage6"' in version
+    assert '__version__ = "0.7.0-beta.1"' in version
     assert "Статус: **завершён в 0.4.4-stage4**" in stage4
     assert "Этап 4: действия и автоматизация точек восстановления — завершён" in state
     assert "**Статус: реализовано в 0.4.4-stage4.**" in plan

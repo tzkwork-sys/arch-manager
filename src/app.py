@@ -61,7 +61,8 @@ def install_exception_handler(log_file: Path) -> None:
             box.setText("Произошла непредвиденная ошибка.")
             box.setInformativeText(
                 "Приложение записало технические сведения в журнал. "
-                "Опасные системные действия не выполнялись."
+                "Если выполнялась системная операция, проверьте её результат и журнал "
+                "перед повторным запуском."
             )
             box.setDetailedText(f"Журнал: {log_file}\n\n{exc_type.__name__}: {exc_value}")
             box.exec()

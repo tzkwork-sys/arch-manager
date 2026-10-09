@@ -1,13 +1,13 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Arch Manager — новая версия
+Name=Arch Manager
 GenericName=Управление системой Arch Linux
 Comment=Обновления, точки восстановления и обслуживание Arch Linux
 Exec=arch-manager-gui
 Icon=arch-manager-gui
 Terminal=false
-Categories=System;Settings;
+Categories=System;
 Keywords=Arch;updates;restore;maintenance;system;
 StartupNotify=true
 StartupWMClass=arch-manager-gui

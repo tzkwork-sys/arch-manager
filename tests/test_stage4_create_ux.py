@@ -44,7 +44,7 @@ def test_stage4_6_success_message_uses_inline_feedback_not_modal_popup():
 
 
 def test_stage4_6_docs_explain_visual_numbering_policy():
-    readme = README.read_text(encoding="utf-8")
+    readme = (ROOT / "docs/README_HISTORY.md").read_text(encoding="utf-8")
     stage4 = STAGE4.read_text(encoding="utf-8")
     state = STATE.read_text(encoding="utf-8")
     combined = readme + "\n" + stage4 + "\n" + state
@@ -53,5 +53,5 @@ def test_stage4_6_docs_explain_visual_numbering_policy():
 
 
 def test_stage4_6_version_bumped():
-    assert '__version__ = "0.6.1-stage6"' in VERSION.read_text(encoding="utf-8")
-    assert '0.6.1-stage6' in README.read_text(encoding="utf-8")
+    assert '__version__ = "0.7.0-beta.1"' in VERSION.read_text(encoding="utf-8")
+    assert '0.7.0-beta.1' in README.read_text(encoding="utf-8")

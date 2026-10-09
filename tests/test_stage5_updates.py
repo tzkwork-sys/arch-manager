@@ -116,7 +116,7 @@ def test_stage5_runner_never_runs_yay_through_sudo():
 
 
 def test_stage5_version_and_documentation_exist():
-    assert '__version__ = "0.6.1-stage6"' in VERSION.read_text(encoding="utf-8")
+    assert '__version__ = "0.7.0-beta.1"' in VERSION.read_text(encoding="utf-8")
     assert STAGE5.is_file()
     text = STAGE5.read_text(encoding="utf-8")
     assert "детальный список" in text

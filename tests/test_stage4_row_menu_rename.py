@@ -68,5 +68,5 @@ def test_stage4_7_docs_keep_delete_and_importance_for_later_steps():
 
 
 def test_stage4_7_version_bumped():
-    assert '__version__ = "0.6.1-stage6"' in VERSION.read_text(encoding="utf-8")
-    assert '0.6.1-stage6' in README.read_text(encoding="utf-8")
+    assert '__version__ = "0.7.0-beta.1"' in VERSION.read_text(encoding="utf-8")
+    assert '0.7.0-beta.1' in README.read_text(encoding="utf-8")

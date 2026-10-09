@@ -155,7 +155,7 @@ def test_stage6_shell_scripts_have_valid_syntax():
 
 
 def test_stage6_version_and_documentation():
-    assert '__version__ = "0.6.1-stage6"' in VERSION.read_text(encoding="utf-8")
+    assert '__version__ = "0.7.0-beta.1"' in VERSION.read_text(encoding="utf-8")
     text = DOC.read_text(encoding="utf-8")
     assert "Кэш миниатюр" in text
     assert "Корзина" in text

@@ -15,7 +15,11 @@ HELPER_LIB='/usr/local/libexec/arch-manager/recovery_lib'
 READ_HELPER='/usr/lib/arch-manager/read-recovery-state'
 RECOVERY='/usr/local/libexec/arch-manager/arch-recovery.sh'
 RECOVERY_RESOURCES='/usr/local/share/arch-manager/recovery'
-RECOVERY_STAGE='/usr/local/share/arch-manager/.recovery.stage'
+RECOVERY_STAGE="/usr/local/share/arch-manager/.recovery.stage.$$"
+HELPER_LIB_STAGE="/usr/local/libexec/arch-manager/.recovery_lib.stage.$$"
+HELPER_LIB_BACKUP=""
+RECOVERY_BACKUP=""
+install_complete=0
 POLICY='/usr/share/polkit-1/actions/org.archmanager.manage-recovery.policy'
 RULE='/etc/polkit-1/rules.d/00-arch-manager-recovery.rules'
 ACTION='org.archmanager.manage-recovery'
@@ -44,7 +48,26 @@ SUDOERS="/etc/sudoers.d/arch-manager-read-recovery-${TARGET_UID}"
 TARGET_JSON=$(/usr/bin/python -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$TARGET_USER")
 rule_tmp=$(/usr/bin/mktemp)
 sudoers_tmp=$(/usr/bin/mktemp)
-trap '/usr/bin/rm -f -- "$rule_tmp" "$sudoers_tmp"' EXIT
+cleanup_install() {
+    local rc=$?
+    /usr/bin/rm -f -- "$rule_tmp" "$sudoers_tmp"
+    if (( install_complete == 0 )); then
+        # Never ask for another password during error cleanup. If authorization
+        # expired, leave the root-owned backups for administrator recovery.
+        for pair in "$HELPER_LIB_BACKUP|$HELPER_LIB" "$RECOVERY_BACKUP|$RECOVERY_RESOURCES"; do
+            backup=${pair%%|*}; target=${pair#*|}
+            [[ -n "$backup" ]] || continue
+            if /usr/bin/sudo -n /usr/bin/test -d "$backup"; then
+                /usr/bin/sudo -n /usr/bin/rm -rf -- "$target" \
+                    && /usr/bin/sudo -n /usr/bin/mv -- "$backup" "$target" \
+                    || printf 'Recovery rollback incomplete; backup preserved at %s\n' "$backup" >&2
+            fi
+        done
+    fi
+    return "$rc"
+}
+trap cleanup_install EXIT
+trap 'exit 130' HUP INT TERM
 cat > "$rule_tmp" <<RULE
 polkit.addRule(function(action, subject) {
     if (action.id != "${ACTION}") return polkit.Result.NOT_HANDLED;
@@ -58,18 +81,24 @@ printf '%s ALL=(root) NOPASSWD: %s\n' "$TARGET_USER" "$READ_HELPER" > "$sudoers_
 /usr/bin/visudo -cf "$sudoers_tmp" >/dev/null || fail 'generated Recovery read rule is invalid'
 /usr/bin/sudo -v
 /usr/bin/sudo /usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec/arch-manager
-/usr/bin/sudo /usr/bin/rm -rf -- "$HELPER_LIB"
-/usr/bin/sudo /usr/bin/install -d -o root -g root -m 0755 "$HELPER_LIB"
-for module in common.sh iso.sh usb.sh local.sh; do /usr/bin/sudo /usr/bin/install -o root -g root -m 0644 "$SOURCE_HELPER_LIB/$module" "$HELPER_LIB/$module"; done
+/usr/bin/sudo /usr/bin/install -d -o root -g root -m 0755 "$HELPER_LIB_STAGE"
+for module in common.sh iso.sh usb.sh local.sh; do /usr/bin/sudo /usr/bin/install -o root -g root -m 0644 "$SOURCE_HELPER_LIB/$module" "$HELPER_LIB_STAGE/$module"; done
 /usr/bin/sudo /usr/bin/install -d -o root -g root -m 0755 /usr/lib/arch-manager
 /usr/bin/sudo /usr/bin/install -d -o root -g root -m 0755 /usr/local/share/arch-manager
-/usr/bin/sudo /usr/bin/rm -rf -- "$RECOVERY_STAGE"
 /usr/bin/sudo /usr/bin/install -d -o root -g root -m 0755 "$RECOVERY_STAGE"
 /usr/bin/sudo /usr/bin/cp -a -- "$SOURCE_PROFILE" "$RECOVERY_STAGE/archiso"
 /usr/bin/sudo /usr/bin/install -o root -g root -m 0755 "$SOURCE_RECOVERY" "$RECOVERY_STAGE/arch-manager-recovery"
 /usr/bin/sudo /usr/bin/chown -R root:root "$RECOVERY_STAGE"
 /usr/bin/sudo /usr/bin/chmod -R go-w "$RECOVERY_STAGE"
-/usr/bin/sudo /usr/bin/rm -rf -- "$RECOVERY_RESOURCES"
+if /usr/bin/sudo /usr/bin/test -e "$HELPER_LIB"; then
+    HELPER_LIB_BACKUP="${HELPER_LIB}.previous.$(/usr/bin/date +%s).$$"
+    /usr/bin/sudo /usr/bin/mv -- "$HELPER_LIB" "$HELPER_LIB_BACKUP"
+fi
+/usr/bin/sudo /usr/bin/mv -- "$HELPER_LIB_STAGE" "$HELPER_LIB"
+if /usr/bin/sudo /usr/bin/test -e "$RECOVERY_RESOURCES"; then
+    RECOVERY_BACKUP="${RECOVERY_RESOURCES}.previous.$(/usr/bin/date +%s).$$"
+    /usr/bin/sudo /usr/bin/mv -- "$RECOVERY_RESOURCES" "$RECOVERY_BACKUP"
+fi
 /usr/bin/sudo /usr/bin/mv -- "$RECOVERY_STAGE" "$RECOVERY_RESOURCES"
 /usr/bin/sudo /usr/bin/install -o root -g root -m 0755 "$SOURCE_HELPER" "$HELPER"
 /usr/bin/sudo /usr/bin/install -o root -g root -m 0755 "$SOURCE_READER" "$READ_HELPER"
@@ -93,4 +122,6 @@ for (( attempt = 0; attempt < 50; attempt++ )); do
     /usr/bin/sleep 0.1
 done
 (( registered == 1 )) || fail 'Polkit did not register the Recovery action'
+install_complete=1
+printf 'Previous Recovery directory backups (if any): %s %s\n' "$HELPER_LIB_BACKUP" "$RECOVERY_BACKUP"
 printf 'Installed Recovery helper: %s\nInstalled Recovery read probe: %s\nAuthorized desktop user: %s\n' "$HELPER" "$READ_HELPER" "$TARGET_USER"

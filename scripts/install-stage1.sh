@@ -9,7 +9,7 @@ LAUNCHER="$LAUNCHER_DIR/arch-manager-gui"
 DESKTOP_FILE="$APP_DIR/arch-manager-gui.desktop"
 ICON_FILE="$ICON_DIR/arch-manager-gui.svg"
 DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || true)"
-DESKTOP_SHORTCUT="${DESKTOP_DIR:+$DESKTOP_DIR/Arch Manager — новая версия.desktop}"
+DESKTOP_SHORTCUT="${DESKTOP_DIR:+$DESKTOP_DIR/Arch Manager.desktop}"
 
 if ! command -v python >/dev/null 2>&1; then
     echo "ОШИБКА: Python не найден."
@@ -19,7 +19,7 @@ fi
 if ! python -c 'import PySide6' >/dev/null 2>&1; then
     if [[ -f /etc/arch-release ]] && command -v pacman >/dev/null 2>&1; then
         echo "PySide6 не установлен. Устанавливаю официальный пакет pyside6..."
-        sudo pacman -S --needed pyside6
+        sudo pacman -Syu --needed pyside6
     else
         echo "ОШИБКА: PySide6 не найден. Установите PySide6 для Python 3."
         exit 1
@@ -38,14 +38,14 @@ cat > "$DESKTOP_FILE" <<EOF2
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Arch Manager — новая версия
+Name=Arch Manager
 GenericName=Управление системой Arch Linux
 Comment=Обновления, точки восстановления и обслуживание Arch Linux
 Exec=$LAUNCHER
 TryExec=$LAUNCHER
 Icon=$ICON_FILE
 Terminal=false
-Categories=System;Settings;
+Categories=System;
 Keywords=Arch;updates;restore;maintenance;system;
 StartupNotify=true
 StartupWMClass=arch-manager-gui
@@ -66,7 +66,7 @@ command -v kbuildsycoca6 >/dev/null 2>&1 \
 printf '\nГотово. Новая GUI-версия Arch Manager установлена.\n'
 printf 'Иконка GUI: %s\n' "$ICON_FILE"
 printf 'Запуск из терминала: %s\n' "$LAUNCHER"
-printf 'В меню KDE: «Arch Manager — новая версия».\n'
+printf 'В меню KDE: «Arch Manager».\n'
 if [[ -n "$DESKTOP_DIR" && -d "$DESKTOP_DIR" ]]; then
     printf 'Ярлык на рабочем столе: %s\n' "$DESKTOP_SHORTCUT"
 fi

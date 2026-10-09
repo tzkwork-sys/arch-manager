@@ -180,7 +180,7 @@ def test_stage4_executor_builds_exact_pkexec_command(monkeypatch):
         captured["kwargs"] = kwargs
         return subprocess.CompletedProcess(command, 0, "OK\tinstalled\tdemo\n", "")
 
-    monkeypatch.setattr(executor.subprocess, "run", fake_run)
+    monkeypatch.setattr(executor, "_run_package_process", fake_run)
     result = executor.execute_package_action(build_install_request("demo"))
     assert result.package_name == "demo"
     assert captured["command"] == (
@@ -197,8 +197,8 @@ def test_stage4_executor_builds_exact_pkexec_command(monkeypatch):
 def test_stage4_executor_maps_update_required(monkeypatch):
     monkeypatch.setattr(executor, "_ensure_runtime_ready", lambda: None)
     monkeypatch.setattr(
-        executor.subprocess,
-        "run",
+        executor,
+        "_run_package_process",
         lambda command, **kwargs: subprocess.CompletedProcess(command, 74, "", "upgrade required"),
     )
     with pytest.raises(executor.PackageActionUpdateRequired):

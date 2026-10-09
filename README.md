@@ -1,68 +1,118 @@
-# Arch Manager GUI
+<div align="center">
+  <img src="src/assets/arch-manager.svg" width="88" alt="Логотип Arch Manager">
+  <h1>Arch Manager</h1>
+  <p>Обновления, приложения и обслуживание Arch Linux — в одном окне.</p>
+  <p><strong>0.7.0-beta.1 · Предварительная версия · Python / Qt</strong></p>
+  <p>
+    <a href="docs/INSTALL.md">Установка</a> ·
+    <a href="CHANGELOG.md">Изменения</a> ·
+    <a href="CONTRIBUTING.md">Участие в разработке</a> ·
+    <a href="https://github.com/tzkwork-sys/arch-manager/issues">Сообщить об ошибке</a>
+  </p>
+</div>
 
-Текущая версия: **0.6.1-stage6**; разработка Stage 7 Recovery продолжается.
+---
 
-Arch Manager использует собственную minimal Recovery-среду для локального восстановления без USB и будущей аварийной флешки.
+**Arch Manager** — графическое приложение для управления Arch Linux. Оно
+объединяет системные обновления, каталог приложений, точки восстановления,
+диагностику и обслуживание, используя стандартные инструменты системы.
 
-## Recovery
+> **Статус выпуска:** подготовлен кандидат первой публичной бета-версии.
+> Проверка установки на чистой системе и испытания Recovery ещё впереди.
+> Это не обещание стабильности или поддержки любой конфигурации Arch.
 
-Локальная Recovery-среда теперь одна общая и не привязана к конкретной точке.
+## Возможности
 
-На единой странице **«Восстановление»** сверху находится компактный список точек восстановления, а ниже — состояние локальной Recovery-среды. Arch Manager автоматически проверяет среду и при необходимости подготавливает/обновляет её. Пользователь не выбирает snapshot для Recovery boot в обычной системе: нужная точка выбирается уже после перезагрузки. Когда среда готова, доступна кнопка **«Перезагрузить в режим восстановления»**.
+| Раздел | Что можно делать |
+| --- | --- |
+| **Обзор** | Смотреть состояние системы, обновлений и обслуживания. |
+| **Обновления** | Проверять и устанавливать официальные обновления и выбранные AUR-пакеты в одном разделе. |
+| **Приложения** | Искать официальные и AUR-приложения, просматривать установленные приложения и системные пакеты. |
+| **Восстановление** | Создавать и удалять точки Snapper; готовить экспериментальную локальную или USB Recovery-среду. |
+| **Обслуживание** | Очищать кэш пакетов, ненужные зависимости, журнал и пользовательские кэши. |
+| **Система** | Просматривать сведения и диагностику, включая дополнительные SMART/NVMe-проверки. |
+| **Настройки** | Настраивать доступные параметры и смотреть журнал действий. |
 
-После перезагрузки автономный Recovery UI сам читает актуальный `@snapshots` и предлагает выбрать нужную точку уже вне работающего корня `@`. Видимые номера всегда идут подряд `1…N`, а реальные Snapper ID с возможными пропусками остаются внутренними идентификаторами. После выбора точки восстановление запускается автоматически без повторных подтверждений; процентных progress-bar нет. После успешного завершения остаётся один финальный запрос: любая клавиша — перезагрузить систему, `0` — выйти без перезагрузки.
+GUI работает от обычного пользователя. Для системных изменений используются
+ограниченные системные компоненты и авторизация администратора. Обновление
+официальных пакетов выполняется целиком, без отдельного частичного обновления
+приложений. AUR требует `yay` и внимательного просмотра его вопросов и PKGBUILD.
 
-Список точек использует отдельный быстрый fingerprint Snapper и локальный cache в `~/.cache/arch-manager`: если metadata snapshots не менялась, таблица восстанавливается из cache без повторного полного чтения. Поле эксклюзивного размера убрано, поэтому фоновый `btrfs filesystem du` для каждой точки больше не выполняется. Recovery readiness также хранит локальный cache по дешёвому fingerprint; тяжёлая SHA-256 проверка повторяется только после реального изменения boot/ISO/profile/engine состояния.
+## Начало работы
 
-ISO хранится отдельно в `/data/Arch-Recovery/Arch-Manager-Recovery.iso`. Его cache проверяется по Recovery profile/engine metadata и SHA-256. Новые snapshots не вызывают пересборку ISO.
+**Целевая система:** Arch Linux x86_64. Основное окружение разработки — KDE Plasma.
+Нужны Python, PySide6, графический агент Polkit и поддерживаемый терминал
+(например, Konsole). AUR, Snapper и Recovery — дополнительные возможности со
+своими зависимостями, а не обязательное условие запуска всего приложения.
 
-Для установки/обновления ограниченного Stage 7 helper:
+1. Прочитайте [инструкцию установки](docs/INSTALL.md), включая зависимости.
+2. Скачайте исходники выбранного выпуска, когда он будет опубликован.
+3. В распакованной папке выполните **от обычного пользователя**:
+
+   ```bash
+   bash scripts/install.sh
+   ```
+
+4. Откройте **Arch Manager** в меню приложений или запустите
+   `~/.local/bin/arch-manager-gui`.
+5. При необходимости установите дополнительные системные компоненты по инструкции.
+
+Установщик сохраняет отдельную копию приложения. Обновление, удаление и перечень
+дополнительных компонентов описаны в [INSTALL.md](docs/INSTALL.md).
+
+## Важно о восстановлении
+
+**Recovery пока экспериментален и рассчитан на ограниченную конфигурацию.**
+
+Для локального режима нужны Btrfs-корень `@`, `@snapshots` в `/.snapshots`,
+systemd-boot с ESP в `/boot` и `/data/Arch-Recovery` на другом блочном устройстве,
+не на устройстве корня. Поддержка GRUB, ext4, шифрованных схем и Secure Boot
+не заявляется.
+
+- Открытие раздела Recovery при выполненных условиях может запросить пароль,
+  запустить сборку ISO и подготовить загрузочные файлы.
+- **Создание Recovery-флешки уничтожает данные на выбранном накопителе.**
+- Восстановление изменяет системный корень; его нельзя считать проверенным
+  только на основании прохождения автоматических тестов.
+- **Храните независимую резервную копию.** Snapshots на том же диске не защищают
+  от отказа диска.
+
+Подробнее: [ограничения установки](docs/INSTALL.md#recovery-limitations) и
+[устройство Recovery](docs/STAGE_7.md).
+
+## Сообщить об ошибке или предложить улучшение
+
+Используйте [Issues](https://github.com/tzkwork-sys/arch-manager/issues) для ошибок
+и предложений. Укажите версию приложения, окружение, шаги воспроизведения и
+ожидаемый результат. **Удалите пароли, токены, личные пути и другие приватные
+данные из журналов.**
+
+Уязвимости не публикуйте в открытых Issues: см. [SECURITY.md](SECURITY.md).
+
+Хотите помочь кодом? Сделайте fork и отправьте Pull Request по правилам
+[CONTRIBUTING.md](CONTRIBUTING.md). Изменения в официальный проект принимает
+владелец; открытая лицензия разрешает независимые изменения собственных копий.
+
+## Для разработчиков
 
 ```bash
-./scripts/install-stage7-recovery-helper.sh
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+QT_QPA_PLATFORM=offscreen python -m pytest -q
 ```
 
-Запуск GUI из корня проекта:
+Запуск из исходников: `bash scripts/run-gui.sh`.
+Не запускайте установщики или реальные операции Recovery ради проверки PR.
 
-```bash
-./scripts/run-gui.sh
-```
+| Документ | Назначение |
+| --- | --- |
+| [Архитектура](docs/ARCHITECTURE.md) | Структура приложения и границы системных компонентов. |
+| [Подготовка выпуска](docs/RELEASE.md) | Проверки, обязательные перед публикацией. |
+| [Changelog](CHANGELOG.md) | Изменения кандидата выпуска. |
+| [История разработки](docs/README_HISTORY.md) | Архив старого README; не руководство по текущей версии. |
 
-Подробности: `docs/STAGE_7.md` и `docs/CURRENT_STATE.md`.
+## Лицензия
 
-Stage 6 содержит центр обслуживания с очисткой package cache, orphan packages, journal, thumbnails и корзин. Stage 5 содержит центр обновлений и защитные точки восстановления.
-
-Раздел **«Приложения»** (магазин официальных desktop-приложений Arch Linux) доведён до Stage 6: каталог работает поверх локальных AppStream metadata, использует безопасный install/remove helper, имеет offline-friendly cache и интегрирован с общей страницей системных обновлений без partial upgrades.
-
-Интерфейс основных разделов использует компактный общий header: возврат к обзору, заголовок и основные действия выровнены по одной сетке. На странице обновлений поиск пакета убран; кнопка `ⓘ` напротив пакета показывает его локальное описание, а технический отчёт открывается в отдельном прокручиваемом окне.
-
-Список точек восстановления сохраняет визуальную нумерацию отдельно от технического Snapper ID и поддерживает выделение нескольких строк (`Ctrl`/`Shift`) с одним подтверждением пакетного удаления.
-
-## Архитектурный рефакторинг
-
-Крупные GUI и Recovery-helper разделены по ответственности без изменения пользовательской функциональности. Активный Recovery engine перенесён из `legacy` в `recovery/engine/`. Подробности: `docs/ARCHITECTURE.md`.
-
-### Recovery 1.8.18 — безопасный порядок запуска TTY + boot-log/watchdog
-Исправлена регрессия 1.8.17: в обычном local/USB режиме поиск системного Btrfs выполняется до позднего переключения tty1 в UTF-8, а его ранний пользовательский вывод подавляется. После успешного поиска и монтирования tty1 один раз переводится в UTF-8, экран очищается и только затем рисуется русскоязычный интерфейс. Это сохраняет защиту от KMS/TTY-зависания и одновременно не возвращает русский транслит. Для ручного режима консоль готовится отдельной обёрткой перед возможными интерактивными вопросами. Постоянный boot-log и 60-секундный watchdog сохранены. Версия Recovery 1.8.18, iso_version=9.
-
-
-
-### Recovery 1.8.21: resilient Cyrillic console font fallback
-
-Recovery no longer aborts when a single hard-coded console font name cannot be loaded. Immediately before the first menu draw it resolves an installed Cyrillic-capable PSF file from a deterministic kbd fallback list (LatArCyrHeb/LatGrkCyr/Cyr/UniCyr), attempts a font load, enables Linux-console UTF-8 mode, and continues even if the kernel rejects all font changes. Built-in menu labels remain English/ASCII, while UTF-8 restore-point descriptions are preserved unchanged. This removes the fatal `Could not load the Recovery console font` regression while retaining a single menu draw. Engine version is 1.8.21 and `iso_version` is 12.
-
-### Recovery 1.8.22: single stable menu and correct Cyrillic descriptions
-
-Recovery now decodes Snapper XML numeric character references into UTF-8 bytes without depending on the process locale, including legacy double-escaped `&amp;#xNNNN;` descriptions. The recovery UI takes a single-instance lock, and systemd no longer resets or hangs up tty1 around the wizard; the engine itself performs the only screen clear immediately before the final menu draw. `iso_version` is 13 so the cached Recovery ISO is forced to rebuild.
-
-### Recovery 1.9.0: one visible draw and full Cyrillic descriptions
-
-- Recovery UI is prepared off-screen on dedicated `/dev/tty2` and activated exactly once after the table is complete.
-- `arch-manager-recovery.service` uses `Type=idle`; tty2 getty is masked/conflicted to prevent later console takeover.
-- Known legacy `Arch Manager: pered obnov...` automatic descriptions are normalized for display to Cyrillic without modifying snapshot metadata.
-- Description text is no longer truncated with ellipsis. Compact table widths fit the standard automatic description in 80 columns; longer text is wrapped on continuation lines.
-- Recovery version is 1.9.0 and Archiso profile version is 14 to invalidate the previous cached ISO.
-
-### Recovery 1.9.0: clean console-menu rewrite
-
-The accumulated hidden-tty2/chvt startup path was removed. Recovery now has one systemd owner for `/dev/tty1`, one console setup pass, one screen clear and one menu render. There is no hidden VT switch and no second copy of the table. Restore-point descriptions keep full UTF-8 text; the known legacy `pered obnov...` automatic description is repaired only at display time. `iso_version=15` invalidates the previous cached ISO.
+**GPL-3.0-only.** См. [LICENSE](LICENSE). Приложение распространяется без гарантий.
+Зависимости и отдельно обозначенные сторонние материалы сохраняют свои лицензии.

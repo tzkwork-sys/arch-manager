@@ -71,5 +71,5 @@ def test_stage4_5_restore_point_page_no_longer_claims_read_only_mode():
 def test_stage4_5_version_marks_first_mutating_stage4_gui():
     version_source = (ROOT / "src" / "__init__.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert '__version__ = "0.6.1-stage6"' in version_source
-    assert "0.6.1-stage6" in readme
+    assert '__version__ = "0.7.0-beta.1"' in version_source
+    assert "0.7.0-beta.1" in readme

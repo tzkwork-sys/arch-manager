@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import logging
 
 from src.app_store.actions import (
     PackageAction,
@@ -161,6 +162,24 @@ def _parse_success(request: PackageActionRequest, stdout: str) -> PackageActionR
     return PackageActionResult(request.action, request.package_name)
 
 
+def _run_package_process(command, *, timeout):
+    """Never kill a helper mid-transaction or release its coordinator early."""
+    with subprocess.Popen(
+        command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            logging.getLogger(__name__).warning(
+                "Package operation exceeded %.0fs; waiting for the helper to finish", timeout
+            )
+            # pacman may be updating files/database. An elapsed time limit is
+            # not permission to kill it or to report that it stopped.
+            stdout, stderr = process.communicate()
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 def execute_package_action(
     request: PackageActionRequest,
     *,
@@ -179,24 +198,7 @@ def execute_package_action(
         *request.helper_arguments(),
     )
     try:
-        completed = subprocess.run(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        detail = exc.stderr if isinstance(exc.stderr, str) else ""
-        raise PackageActionTimedOut(
-            "Пакетная операция не завершилась вовремя.",
-            returncode=124,
-            detail=detail[:2000],
-        ) from exc
+        completed = _run_package_process(command, timeout=timeout)
     except OSError as exc:
         raise PackageHelperUnavailable(
             "Не удалось запустить системный helper магазина приложений.",
