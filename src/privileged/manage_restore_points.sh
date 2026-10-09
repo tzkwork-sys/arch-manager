@@ -287,6 +287,74 @@ run_set_timeline() {
     printf 'OK\ttimeline\t%s\n' "$enabled"
 }
 
+validate_policy_integer() {
+    local value="${1:-}" maximum="${2:-86400000}"
+    [[ "$value" =~ ^(0|[1-9][0-9]{0,7})$ ]] \
+        || fail 'policy value is not a canonical non-negative integer'
+    (( 10#$value <= maximum )) || fail 'policy value exceeds safe maximum'
+}
+
+run_restore_saved_policy() {
+    [[ $# -eq 14 ]] || fail 'policy-restore expects 12 Snapper values and two timer flags'
+    local number_cleanup="$1" number_min_age="$2" number_limit="$3"
+    local important_limit="$4" timeline_create="$5" timeline_cleanup="$6"
+    local timeline_min_age="$7" hourly="$8" daily="$9"
+    local weekly="${10}" monthly="${11}" yearly="${12}"
+    local cleanup_timer="${13}" timeline_timer="${14}"
+    local backup_dir='/var/lib/arch-manager/settings-policy-backups'
+    local backup_file
+
+    validate_yes_no "$number_cleanup"
+    validate_yes_no "$timeline_create"
+    validate_yes_no "$timeline_cleanup"
+    validate_yes_no "$cleanup_timer"
+    validate_yes_no "$timeline_timer"
+    local value
+    for value in "$number_min_age" "$number_limit" "$important_limit" \
+        "$timeline_min_age" "$hourly" "$daily" "$weekly" "$monthly" "$yearly"; do
+        validate_policy_integer "$value"
+    done
+    require_root
+    require_policy_runtime
+
+    # Preserve the previous root config before any privileged changes.
+    /usr/bin/install -d -o root -g root -m 0700 "$backup_dir"
+    backup_file="$(/usr/bin/mktemp "$backup_dir/snapper-root-$(/usr/bin/date +%Y%m%d-%H%M%S)-XXXXXXXX.conf")"
+    /usr/bin/cp -- /etc/snapper/configs/root "$backup_file"
+    /usr/bin/chmod 0600 "$backup_file"
+
+    "$SNAPPER" -c root set-config \
+        "NUMBER_CLEANUP=$number_cleanup" \
+        "NUMBER_MIN_AGE=$number_min_age" \
+        "NUMBER_LIMIT=$number_limit" \
+        "NUMBER_LIMIT_IMPORTANT=$important_limit" \
+        "TIMELINE_CREATE=$timeline_create" \
+        "TIMELINE_CLEANUP=$timeline_cleanup" \
+        "TIMELINE_MIN_AGE=$timeline_min_age" \
+        "TIMELINE_LIMIT_HOURLY=$hourly" \
+        "TIMELINE_LIMIT_DAILY=$daily" \
+        "TIMELINE_LIMIT_WEEKLY=$weekly" \
+        "TIMELINE_LIMIT_MONTHLY=$monthly" \
+        "TIMELINE_LIMIT_YEARLY=$yearly" >/dev/null \
+        || fail 'Snapper could not restore the saved policy'
+
+    if [[ "$cleanup_timer" == yes ]]; then
+        "$SYSTEMCTL" enable --now snapper-cleanup.timer >/dev/null 2>&1 \
+            || fail 'could not enable saved cleanup timer'
+    else
+        "$SYSTEMCTL" disable --now snapper-cleanup.timer >/dev/null 2>&1 \
+            || fail 'could not disable saved cleanup timer'
+    fi
+    if [[ "$timeline_timer" == yes ]]; then
+        "$SYSTEMCTL" enable --now snapper-timeline.timer >/dev/null 2>&1 \
+            || fail 'could not enable saved timeline timer'
+    else
+        "$SYSTEMCTL" disable --now snapper-timeline.timer >/dev/null 2>&1 \
+            || fail 'could not disable saved timeline timer'
+    fi
+    printf 'OK\tpolicy\trestored\n'
+}
+
 self_test() {
     validate_point_number 1
     validate_point_number 99999
@@ -295,6 +363,9 @@ self_test() {
     validate_yes_no yes
     validate_yes_no no
     validate_description 'Arch Manager helper self-test'
+    validate_policy_integer 0
+    validate_policy_integer 86400000
+    validate_policy_integer 10000 10000
 
     case "$(printf '%s' 'one two three' | /usr/bin/wc -w)" in
         *3) ;;
@@ -332,6 +403,10 @@ case "${1:-}" in
     policy-apply-recommended)
         shift
         run_apply_recommended_policy "$@"
+        ;;
+    policy-restore)
+        shift
+        run_restore_saved_policy "$@"
         ;;
     timeline-set)
         shift

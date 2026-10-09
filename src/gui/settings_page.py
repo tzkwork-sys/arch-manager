@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFileDialog,
+    QFrame,
+    QScrollArea,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -41,6 +45,11 @@ from src.core.restore_point_policy_executor import (
     RestorePointPolicyActionResult,
     execute_restore_point_policy_action,
 )
+from src.core.settings_backup import (
+    apply_preferences, load_backup, make_backup, policy_values,
+    preference_values, save_backup,
+)
+from src.core.settings_backup_executor import apply_saved_snapper_policy
 
 from .log_page import LogPage
 from .page_base import NavigablePage
@@ -88,6 +97,25 @@ class _PolicyActionWorker(QRunnable):
         self.signals.completed.emit(result)
 
 
+class _BackupPolicyWorker(QRunnable):
+    """One fixed privileged action, always off the GUI event thread."""
+
+    def __init__(self, policy: dict[str, object]) -> None:
+        super().__init__()
+        self.policy = policy
+        self.signals = _PolicySignals()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            apply_saved_snapper_policy(self.policy)
+        except Exception as exc:  # pragma: no cover - OS / Polkit boundary
+            LOGGER.exception("System settings restore failed")
+            self.signals.failed.emit(exc)
+            return
+        self.signals.completed.emit(None)
+
+
 class SettingsPage(NavigablePage):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -95,6 +123,10 @@ class SettingsPage(NavigablePage):
         self._thread_pool = QThreadPool.globalInstance()
         self._policy_worker: _PolicyReadWorker | None = None
         self._action_worker: _PolicyActionWorker | None = None
+        self._backup_apply_worker: _BackupPolicyWorker | None = None
+        self._backup_destination: Path | None = None
+        self._export_preferences: dict[str, object] | None = None
+        self._pending_import: dict[str, object] | None = None
         self._policy_state: RestorePointPolicyState | None = None
         self._loaded_once = False
         self._ignore_timeline_toggle = False
@@ -111,12 +143,21 @@ class SettingsPage(NavigablePage):
 
         self.tabs = QTabWidget()
         self.general_tab = QWidget()
-        general_layout = QVBoxLayout(self.general_tab)
+        general_tab_layout = QVBoxLayout(self.general_tab)
+        general_tab_layout.setContentsMargins(0, 0, 0, 0)
+        general_content = QWidget()
+        general_layout = QVBoxLayout(general_content)
         general_layout.setContentsMargins(0, 4, 0, 0)
         general_layout.setSpacing(10)
+        self.general_scroll = QScrollArea()
+        self.general_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.general_scroll.setWidgetResizable(True)
+        self.general_scroll.setWidget(general_content)
+        general_tab_layout.addWidget(self.general_scroll)
         self._build_update_protection_card(general_layout)
         self._build_timeline_card(general_layout)
         self._build_storage_card(general_layout)
+        self._build_backup_card(general_layout)
         self._build_status_row(general_layout)
         general_layout.addStretch(1)
 
@@ -231,6 +272,196 @@ class SettingsPage(NavigablePage):
         card_layout.addLayout(actions)
         layout.addWidget(card)
 
+    def _build_backup_card(self, layout: QVBoxLayout) -> None:
+        card = card_frame()
+        body = QVBoxLayout(card)
+        body.setContentsMargins(*CARD_MARGINS)
+        body.setSpacing(8)
+
+        title = QLabel("Резервная копия настроек")
+        font = title.font()
+        font.setBold(True)
+        title.setFont(font)
+
+        description = QLabel(
+            "Переносимый JSON: настройки обновлений и обслуживания, "
+            "лимиты хранения и расписание Snapper. "
+            "Точки восстановления, пакеты и журналы не включаются."
+        )
+        description.setWordWrap(True)
+        muted_text(description)
+
+        actions = QHBoxLayout()
+        self.export_settings_button = QPushButton("Сохранить настройки…")
+        self.export_settings_button.setObjectName("settingsExportButton")
+        self.export_settings_button.clicked.connect(self._export_settings)
+        self.import_settings_button = QPushButton("Восстановить настройки…")
+        self.import_settings_button.setObjectName("settingsImportButton")
+        self.import_settings_button.clicked.connect(self._import_settings)
+        actions.addWidget(self.export_settings_button)
+        actions.addWidget(self.import_settings_button)
+        actions.addStretch(1)
+        body.addWidget(title)
+        body.addWidget(description)
+        body.addLayout(actions)
+        layout.addWidget(card)
+
+    def _settings_transfer_busy(self) -> bool:
+        return any((self._policy_worker, self._action_worker, self._backup_apply_worker))
+
+    @Slot()
+    def _export_settings(self) -> None:
+        if self._settings_transfer_busy():
+            return
+        default_name = Path.home() / f"Arch-Manager-settings-{datetime.now():%Y%m%d-%H%M}.json"
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить настройки Arch Manager", str(default_name),
+            "Настройки Arch Manager (*.json)",
+        )
+        if not filename:
+            return
+        self._backup_destination = Path(filename)
+        self._export_preferences = preference_values(self.settings)
+        self._set_busy(True, "Читаю текущую системную политику…")
+        worker = _PolicyReadWorker()
+        self._policy_worker = worker
+        worker.signals.completed.connect(self._backup_policy_ready)
+        worker.signals.failed.connect(self._backup_policy_failed)
+        self._thread_pool.start(worker)
+
+    @Slot(object)
+    def _backup_policy_ready(self, state: RestorePointPolicyState) -> None:
+        self._finish_export(policy_values(state))
+
+    @Slot(object)
+    def _backup_policy_failed(self, error: object) -> None:
+        LOGGER.error("Unable to export Snapper policy: %s", error)
+        self._finish_export(None)
+
+    def _finish_export(self, policy: dict[str, object] | None) -> None:
+        destination = self._backup_destination
+        preferences = self._export_preferences
+        self._policy_worker = None
+        self._backup_destination = None
+        self._export_preferences = None
+        self._set_busy(False)
+        if destination is None or preferences is None:
+            return
+        try:
+            save_backup(destination, make_backup(preferences, policy))
+        except (OSError, ValueError) as exc:
+            LOGGER.error("Settings export failed: %s", exc)
+            QMessageBox.warning(self, "Не удалось сохранить настройки", str(exc))
+            return
+        if policy is None:
+            scope = "Сохранены только настройки приложения: политика Snapper недоступна или неполная."
+        else:
+            scope = "Сохранены настройки приложения и системная политика Snapper."
+        self.policy_feedback.setText("Резервная копия настроек сохранена.")
+        QMessageBox.information(
+            self, "Настройки сохранены", f"{scope}\n\nФайл: {destination}"
+        )
+
+    @Slot()
+    def _import_settings(self) -> None:
+        if self._settings_transfer_busy():
+            return
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Восстановить настройки Arch Manager", str(Path.home()),
+            "Настройки Arch Manager (*.json)",
+        )
+        if not filename:
+            return
+        try:
+            backup = load_backup(Path(filename))
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Не удалось прочитать настройки", str(exc))
+            return
+        policy = backup["snapper"]
+        scope = (
+            "Параметры приложения и системная политика Snapper. "
+            "Включая расписание, лимиты и состояния таймеров."
+            if policy is not None else
+            "Только параметры приложения — в этом файле нет политики Snapper."
+        )
+        answer = QMessageBox.question(
+            self, "Восстановить настройки?",
+            f"Дата копии: {backup['saved_at']}\n\n"
+            f"Будет восстановлено: {scope}\n\n"
+            "Текущие настройки будут заменены. Существующие точки не удаляются сразу, "
+            "но восстановленная автоочистка Snapper может удалить старые точки позднее. "
+            "Для применения всех изменений потребуется перезапустить Arch Manager.\n\n"
+            "Продолжить?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if policy is None:
+            self._complete_import(backup)
+            return
+        self._pending_import = backup
+        self._set_busy(True, "Восстанавливаю системную политику Snapper…")
+        worker = _BackupPolicyWorker(policy)
+        self._backup_apply_worker = worker
+        worker.signals.completed.connect(self._backup_system_applied)
+        worker.signals.failed.connect(self._backup_system_failed)
+        self._thread_pool.start(worker)
+
+    @Slot(object)
+    def _backup_system_applied(self, _result: object) -> None:
+        self._backup_apply_worker = None
+        backup = self._pending_import
+        self._pending_import = None
+        self._set_busy(False)
+        if backup is not None:
+            self._complete_import(backup)
+
+    @Slot(object)
+    def _backup_system_failed(self, error: object) -> None:
+        self._backup_apply_worker = None
+        self._pending_import = None
+        self._set_busy(False)
+        self._policy_state = None
+        self.refresh_policy()
+        if isinstance(error, RestorePointActionCancelled):
+            self.policy_feedback.setText("Восстановление отменено.")
+            return
+        detail = getattr(error, "detail", "")
+        LOGGER.error("Unable to restore settings: %s; detail=%s", error, detail)
+        QMessageBox.warning(
+            self, "Восстановление не завершено",
+            "Не удалось полностью применить политику Snapper. "
+            "Настройки приложения не изменялись. "
+            "Часть системных параметров могла измениться — проверьте состояние "
+            "Snapper и таймеров перед повторной попыткой.\n\n"
+            "Копия прежней конфигурации сохраняется системным helper."
+        )
+
+    def _complete_import(self, backup: dict[str, object]) -> None:
+        try:
+            apply_preferences(self.settings, backup["preferences"])
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Настройки восстановлены не полностью", str(exc))
+            return
+        self.auto_restore.blockSignals(True)
+        self.auto_restore.setChecked(
+            self.settings.value(
+                AUTO_RESTORE_POINT_BEFORE_UPDATE_KEY,
+                AUTO_RESTORE_POINT_BEFORE_UPDATE_DEFAULT, type=bool,
+            )
+        )
+        self.auto_restore.blockSignals(False)
+        self.policy_feedback.setText("Настройки восстановлены. Перезапустите Arch Manager.")
+        if backup["snapper"] is not None:
+            self._policy_state = None
+            self.refresh_policy()
+        QMessageBox.information(
+            self, "Настройки восстановлены",
+            "Восстановление выполнено. Перезапустите Arch Manager, "
+            "чтобы остальные страницы подхватили настройки."
+        )
+
     def _build_status_row(self, layout: QVBoxLayout) -> None:
         row = QHBoxLayout()
         self.policy_progress = QProgressBar()
@@ -254,7 +485,7 @@ class SettingsPage(NavigablePage):
             self.log_page.ensure_loaded()
 
     def ensure_loaded(self) -> None:
-        if not self._loaded_once and self._policy_worker is None and self._action_worker is None:
+        if not self._loaded_once and not self._settings_transfer_busy():
             self.refresh_policy()
 
     @Slot(bool)
@@ -264,7 +495,7 @@ class SettingsPage(NavigablePage):
 
     @Slot()
     def refresh_policy(self) -> None:
-        if self._policy_worker is not None or self._action_worker is not None:
+        if self._settings_transfer_busy():
             return
         self._set_busy(True, "Проверяю политику точек восстановления…")
         worker = _PolicyReadWorker()
@@ -349,7 +580,7 @@ class SettingsPage(NavigablePage):
         if self._ignore_timeline_toggle:
             return
         state = self._policy_state
-        if state is None or not state.readable or self._action_worker is not None:
+        if state is None or not state.readable or self._settings_transfer_busy():
             self._restore_timeline_checkbox()
             return
         if checked == state.timeline_enabled:
@@ -386,7 +617,7 @@ class SettingsPage(NavigablePage):
 
     @Slot()
     def _apply_recommended_policy(self) -> None:
-        if self._action_worker is not None or self._policy_worker is not None:
+        if self._settings_transfer_busy():
             return
         answer = QMessageBox.question(
             self,
@@ -465,6 +696,8 @@ class SettingsPage(NavigablePage):
 
     def _set_busy(self, busy: bool, text: str | None = None) -> None:
         self.refresh_button.setEnabled(not busy)
+        self.export_settings_button.setEnabled(not busy)
+        self.import_settings_button.setEnabled(not busy)
         self.timeline_check.setEnabled(not busy and bool(self._policy_state and self._policy_state.readable))
         self.apply_policy_button.setEnabled(not busy and bool(self._policy_state and self._policy_state.readable))
         self.policy_progress.setVisible(busy)
