@@ -16,6 +16,12 @@ jobs:
       PACKAGER: tzkwork-sys
     steps:
       - uses: actions/checkout@v4
+      - name: Use normal file extraction in the disposable container
+        run: |
+          # The minimal image excludes documentation directories by default.
+          # Restore normal extraction rather than ignoring pacman -Qkk failures.
+          pacman-conf NoExtract
+          sed -i '/^[[:space:]]*NoExtract[[:space:]]*=/d' /etc/pacman.conf
       - name: Install dependencies in the disposable build container
         run: >-
           pacman -Syu --noconfirm --needed python pyside6 qt6-svg pacman-contrib fakeroot sudo polkit
