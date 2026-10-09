@@ -33,7 +33,7 @@ from .recovery_workers import (
 )
 from .recovery_usb_mixin import RecoveryUsbMixin
 from .details_dialog import DetailsDialog
-from .theme import card_frame, muted_text
+from .theme import CARD_MARGINS, card_frame, muted_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class RecoveryPage(RecoveryUsbMixin, NavigablePage):
 
         self.status_card = card_frame()
         card = QVBoxLayout(self.status_card)
-        card.setContentsMargins(20, 17, 20, 18)
+        card.setContentsMargins(*CARD_MARGINS)
         card.setSpacing(9)
 
         top = QHBoxLayout()
@@ -211,7 +211,7 @@ class RecoveryPage(RecoveryUsbMixin, NavigablePage):
 
         self.usb_card = card_frame()
         usb = QVBoxLayout(self.usb_card)
-        usb.setContentsMargins(20, 15, 20, 17)
+        usb.setContentsMargins(*CARD_MARGINS)
         usb.setSpacing(8)
 
         usb_top = QHBoxLayout()

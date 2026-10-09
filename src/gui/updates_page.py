@@ -42,7 +42,7 @@ from src.core.updates import (
 )
 
 from .page_base import NavigablePage
-from .theme import BusySpinner, StatusBadge, card_frame, muted_text
+from .theme import CARD_MARGINS, BusySpinner, StatusBadge, card_frame, emphasize_primary_button, muted_text
 from .update_session import UpdateSessionProcess, UpdateSessionResult
 
 LOGGER = logging.getLogger(__name__)
@@ -159,9 +159,7 @@ def _status_for_count(total: int | None, partial: bool) -> tuple[str, str, str]:
         return "Не все источники проверены", "warning", "Повторите проверку позже."
     if total == 0:
         return "Обновлений нет", "ok", "Система актуальна."
-    if total < 7:
-        return f"Доступно обновлений: {total}", "warning", "Есть доступные обновления."
-    return f"Доступно обновлений: {total}", "critical", "Доступно много обновлений."
+    return f"Доступно обновлений: {total}", "warning", "Есть доступные обновления."
 
 
 class UpdatesPage(NavigablePage):
@@ -214,8 +212,7 @@ class UpdatesPage(NavigablePage):
     def _build_toolbar(self, layout: QVBoxLayout) -> None:
         # PageBase owns the action area on the same line as the title.
         # Installation is the first action, followed by a manual re-check.
-        # Both buttons deliberately use the native KDE QPushButton appearance:
-        # an enabled install action must never look like a disabled control.
+        # The main action follows the KDE accent; checking remains neutral.
         del layout
 
         self.install_button = QPushButton("Установить обновления")
@@ -225,6 +222,7 @@ class UpdatesPage(NavigablePage):
         self.install_button.setMinimumHeight(36)
         self.install_button.clicked.connect(self._start_install)
         self.add_header_action(self.install_button)
+        emphasize_primary_button(self.install_button)
 
         self.refresh_button = QPushButton("Проверить обновления")
         self.refresh_button.setIcon(QIcon.fromTheme("view-refresh-symbolic"))
@@ -238,7 +236,7 @@ class UpdatesPage(NavigablePage):
         # title. The icon is no longer floating in empty space.
         self.status_card = card_frame()
         row = QHBoxLayout(self.status_card)
-        row.setContentsMargins(12, 8, 10, 8)
+        row.setContentsMargins(*CARD_MARGINS)
         row.setSpacing(10)
 
         self.status_stack = QStackedWidget()

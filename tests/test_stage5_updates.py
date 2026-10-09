@@ -125,13 +125,14 @@ def test_stage5_version_and_documentation_exist():
     assert "один раз" in text.casefold()
 
 
-def test_update_header_buttons_native_style_and_order():
+def test_update_header_buttons_primary_style_and_order():
     source = PAGE.read_text(encoding="utf-8")
     install_add = "self.add_header_action(self.install_button)"
     refresh_add = "self.add_header_action(self.refresh_button)"
     assert install_add in source
     assert refresh_add in source
     assert source.index(install_add) < source.index(refresh_add)
-    assert "emphasize_primary_button(self.install_button)" not in source
+    assert "emphasize_primary_button(self.install_button)" in source
+    assert "emphasize_primary_button(self.refresh_button)" not in source
     assert 'self.refresh_button.setMinimumHeight(36)' in source
     assert 'self.install_button.setMinimumHeight(36)' in source

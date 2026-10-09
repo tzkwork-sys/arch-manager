@@ -27,7 +27,8 @@ from src.core.update_state import (
 )
 from src.core.updates import UpdatesSummary
 
-from .theme import BusySpinner, STATUS_COLORS, StatusBadge
+from .page_base import NavigablePage
+from .theme import CARD_MARGINS, CARD_RADIUS, BusySpinner, STATUS_COLORS, StatusBadge, emphasize_primary_button, muted_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class SummaryCard(QPushButton):
         self.clicked.connect(self.activated)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setContentsMargins(*CARD_MARGINS)
         layout.setSpacing(9)
 
         header = QHBoxLayout()
@@ -83,9 +84,7 @@ class SummaryCard(QPushButton):
         self.value_label.setWordWrap(True)
 
         self.open_label = QLabel("Открыть раздел  →")
-        open_font = self.open_label.font()
-        open_font.setBold(True)
-        self.open_label.setFont(open_font)
+        muted_text(self.open_label)
 
         layout.addLayout(header)
         layout.addWidget(self.value_label)
@@ -112,8 +111,9 @@ class SummaryCard(QPushButton):
             "text-align: left;"
             "background-color: palette(base);"
             f"border: 2px solid {color.name()};"
-            "border-radius: 9px;"
+            f"border-radius: {CARD_RADIUS}px;"
             "padding: 0px;"
+            "min-height: 142px;"
             "}"
             "QPushButton#overviewSummaryButton:hover {"
             "background-color: palette(alternate-base);"
@@ -121,6 +121,10 @@ class SummaryCard(QPushButton):
             "}"
             "QPushButton#overviewSummaryButton:pressed {"
             "background-color: palette(midlight);"
+            "}"
+            "QPushButton#overviewSummaryButton:focus {"
+            "background-color: palette(alternate-base);"
+            "border: 2px dashed palette(highlight);"
             "}"
         )
 
@@ -171,9 +175,7 @@ def _update_state(updates: UpdatesSummary) -> tuple[str, str, str]:
         return "Не удалось проверить все источники", "warning", "Проверка обновлений неполная."
     if total == 0:
         return "Обновлений нет", "ok", "Система актуальна."
-    if total < 7:
-        return f"Доступно обновлений: {total}", "warning", "Есть доступные обновления."
-    return f"Доступно обновлений: {total}", "critical", "Доступно много обновлений."
+    return f"Доступно обновлений: {total}", "warning", "Есть доступные обновления."
 
 
 def _restore_state(points: RestorePointsSummary) -> tuple[str, str, str]:
@@ -240,7 +242,7 @@ def _system_state(system: SystemInfo) -> tuple[str, str, str]:
             suffix = "" if len(warnings) <= 3 else f" и ещё {len(warnings) - 3}"
             if len(warnings) < SYSTEM_WARNING_BADGE_THRESHOLD:
                 return (
-                    f"Система в норме · замечаний: {len(warnings)}",
+                    f"Критических проблем нет · замечаний: {len(warnings)}",
                     "ok",
                     f"Некритические замечания: {names}{suffix}. Жёлтый статус появляется с {SYSTEM_WARNING_BADGE_THRESHOLD} предупреждений.",
                 )
@@ -273,7 +275,7 @@ def _system_state(system: SystemInfo) -> tuple[str, str, str]:
         count = system.advisory_system_services
         if count < SYSTEM_WARNING_BADGE_THRESHOLD:
             return (
-                f"Система в норме · замечаний: {count}",
+                f"Критических проблем нет · замечаний: {count}",
                 "ok",
                 "Есть некритические служебные замечания; критических проблем не обнаружено.",
             )
@@ -283,7 +285,7 @@ def _system_state(system: SystemInfo) -> tuple[str, str, str]:
     return "Всё в порядке", "ok", "Система работает без обнаруженных проблем."
 
 
-class DashboardPage(QWidget):
+class DashboardPage(NavigablePage):
     navigate_requested = Signal(int)
     data_updated = Signal(object)
     update_state_changed = Signal(object)
@@ -301,33 +303,16 @@ class DashboardPage(QWidget):
         self._results: dict[str, object] = {}
         self._refresh_started_at: datetime | None = None
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(32, 18, 32, 24)
-        root.setSpacing(12)
-
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(10)
-
-        title = QLabel("Обзор")
-        title_font = title.font()
-        title_font.setPointSize(title_font.pointSize() + 7)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title_row.addWidget(title)
-        title_row.addStretch(1)
+        root = self.create_page_layout("Обзор")
 
         self.check_button = QPushButton("Проверить сейчас")
         self.check_button.setAutoDefault(False)
-        self.check_button.setMinimumHeight(34)
         self.check_button.clicked.connect(self.refresh)
-        title_row.addWidget(self.check_button)
-        root.addLayout(title_row)
+        self.add_header_action(self.check_button)
+        emphasize_primary_button(self.check_button)
 
-        self.checked_label = QLabel("Последняя проверка: ещё не выполнялась")
-        from .theme import muted_text
-
-        muted_text(self.checked_label)
+        self.checked_label = self.make_checked_label()
+        root.addWidget(self.checked_label)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -360,8 +345,6 @@ class DashboardPage(QWidget):
         grid.setColumnStretch(1, 1)
         root.addLayout(grid)
         root.addStretch(1)
-        # Keep the timestamp visually quiet at the very bottom of Overview.
-        root.addWidget(self.checked_label)
 
         self._refresh_pending = False
         QTimer.singleShot(250, self.refresh)
@@ -439,9 +422,7 @@ class DashboardPage(QWidget):
         self.check_button.setEnabled(True)
         self.check_button.setText("Проверить сейчас")
         checked_at = datetime.now().astimezone()
-        self.checked_label.setText(
-            f"Последняя проверка: {checked_at.strftime('%d.%m.%Y, %H:%M:%S')}"
-        )
+        self.set_checked_at(self.checked_label, checked_at)
 
         required = {"updates", "restore", "maintenance", "system"}
         if required.issubset(self._results):

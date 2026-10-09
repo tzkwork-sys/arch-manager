@@ -27,7 +27,7 @@ from src.core.system_privileged_diagnostics import collect_privileged_smart
 
 from .details_dialog import DetailsDialog
 from .page_base import NavigablePage
-from .theme import STATUS_COLORS, StatusBadge, card_frame, muted_text
+from .theme import CARD_MARGINS, PAGE_SPACING, STATUS_COLORS, StatusBadge, card_frame, emphasize_primary_button, muted_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -101,6 +101,7 @@ class SystemPage(NavigablePage):
         self.full_button.setToolTip("Расширенная диагностика; для SMART/NVMe может потребоваться авторизация Polkit")
         self.full_button.clicked.connect(lambda: self.refresh(True))
         self.add_header_action(self.full_button)
+        emphasize_primary_button(self.full_button)
 
         self.report_button = QPushButton("Сформировать полный отчёт")
         self.report_button.setAutoDefault(False)
@@ -108,9 +109,12 @@ class SystemPage(NavigablePage):
         self.report_button.clicked.connect(self.generate_report)
         self.add_header_action(self.report_button)
 
+        self.checked_label = self.make_checked_label()
+        layout.addWidget(self.checked_label)
+
         self.state_card = card_frame()
         state_row = QHBoxLayout(self.state_card)
-        state_row.setContentsMargins(14, 9, 14, 9)
+        state_row.setContentsMargins(*CARD_MARGINS)
         state_row.setSpacing(10)
         self.state_badge = StatusBadge()
         state_row.addWidget(self.state_badge)
@@ -138,8 +142,8 @@ class SystemPage(NavigablePage):
         scroll_content = QWidget()
         self.cards = QGridLayout(scroll_content)
         self.cards.setContentsMargins(0, 0, 0, 0)
-        self.cards.setHorizontalSpacing(10)
-        self.cards.setVerticalSpacing(8)
+        self.cards.setHorizontalSpacing(PAGE_SPACING)
+        self.cards.setVerticalSpacing(PAGE_SPACING)
         self.cards.setColumnStretch(0, 1)
         self.cards.setColumnStretch(1, 1)
         self.scroll.setWidget(scroll_content)
@@ -156,7 +160,7 @@ class SystemPage(NavigablePage):
     def _build_identity_card(self) -> None:
         card = card_frame()
         grid = QGridLayout(card)
-        grid.setContentsMargins(14, 10, 14, 10)
+        grid.setContentsMargins(*CARD_MARGINS)
         grid.setHorizontalSpacing(22)
         grid.setVerticalSpacing(5)
         self._add_title(grid, "Сведения о системе", 0)
@@ -176,7 +180,7 @@ class SystemPage(NavigablePage):
     def _build_category_card(self, category: str, index: int) -> None:
         card = card_frame()
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setContentsMargins(*CARD_MARGINS)
         layout.setSpacing(5)
 
         header = QHBoxLayout()
@@ -338,6 +342,7 @@ class SystemPage(NavigablePage):
 
     def _apply_system(self, system: SystemInfo, checked_at: datetime) -> None:
         self._last_system = system
+        self.set_checked_at(self.checked_label, checked_at)
 
         critical = system.critical_checks
         warnings = system.warning_checks
@@ -354,7 +359,7 @@ class SystemPage(NavigablePage):
                 warning_word = "предупреждения"
             else:
                 warning_word = "предупреждений"
-            self.state.setText(f"Система работает нормально. Есть {count} {warning_word}")
+            self.state.setText(f"Критических проблем нет. Есть {count} {warning_word}")
             if count < SYSTEM_WARNING_BADGE_THRESHOLD:
                 self.state_badge.set_status(
                     "ok",

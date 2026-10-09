@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+from datetime import datetime
 import logging
 from pathlib import Path
 from math import floor
@@ -49,7 +50,7 @@ from src.app_store.transactions import PackageActionService
 from src.app_store.update_mapping import ApplicationUpdateMapper
 
 from ..page_base import NavigablePage
-from ..theme import BusySpinner, muted_text
+from ..theme import BusySpinner, emphasize_primary_button, muted_text
 from .aur.details import AurPackageDetailsDialog
 from .aur.integration import (
     filter_installed_aur_packages,
@@ -222,6 +223,7 @@ class AppStorePage(NavigablePage):
         self.reload_button.setAutoDefault(False)
         self.reload_button.clicked.connect(self._reload_requested)
         self.add_header_action(self.reload_button)
+        emphasize_primary_button(self.reload_button)
 
         self.aur_update_all_button = QPushButton("Обновить все AUR")
         self.aur_update_all_button.setObjectName("appStoreAurUpdateAllButton")
@@ -229,6 +231,9 @@ class AppStorePage(NavigablePage):
         self.aur_update_all_button.clicked.connect(self._update_all_aur_requested)
         self.aur_update_all_button.setVisible(False)
         self.add_header_action(self.aur_update_all_button)
+
+        self.checked_label = self.make_checked_label()
+        layout.addWidget(self.checked_label)
 
         filters = QHBoxLayout()
         filters.setSpacing(10)
@@ -593,6 +598,7 @@ class AppStorePage(NavigablePage):
             return
 
         self._loaded = True
+        self.set_checked_at(self.checked_label, datetime.now().astimezone())
         self._update_details = current_update_details() or self._update_details
         applications = result.applications
         if (

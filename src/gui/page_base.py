@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from src.core.formatting import format_datetime
 
-from .theme import card_frame, muted_text
+from .theme import BUTTON_HEIGHT, PAGE_SPACING, PAGE_STYLESHEET, card_frame, muted_text
 
 
 class NavigablePage(QWidget):
@@ -19,6 +19,7 @@ class NavigablePage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setStyleSheet(PAGE_STYLESHEET)
         self.header_actions: QHBoxLayout | None = None
 
     def create_page_layout(
@@ -26,11 +27,11 @@ class NavigablePage(QWidget):
         title: str,
         description: str | None = None,
         *,
-        spacing: int = 12,
+        spacing: int = PAGE_SPACING,
     ) -> QVBoxLayout:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 18, 32, 24)
-        layout.setSpacing(spacing)
+        layout.setSpacing(max(PAGE_SPACING, spacing))
 
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
@@ -64,6 +65,7 @@ class NavigablePage(QWidget):
         if self.header_actions is None:
             raise RuntimeError("create_page_layout() must be called before add_header_action()")
         self.header_actions.addWidget(widget)
+        widget.setMinimumHeight(BUTTON_HEIGHT)
 
     @staticmethod
     def make_checked_label() -> QLabel:

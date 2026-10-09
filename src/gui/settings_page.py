@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, Signal, Slot
 from PySide6.QtWidgets import (
@@ -43,7 +44,7 @@ from src.core.restore_point_policy_executor import (
 
 from .log_page import LogPage
 from .page_base import NavigablePage
-from .theme import card_frame, muted_text
+from .theme import CARD_MARGINS, card_frame, emphasize_primary_button, muted_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -105,6 +106,9 @@ class SettingsPage(NavigablePage):
         self.refresh_button.clicked.connect(self.refresh_policy)
         self.add_header_action(self.refresh_button)
 
+        self.checked_label = self.make_checked_label()
+        layout.addWidget(self.checked_label)
+
         self.tabs = QTabWidget()
         self.general_tab = QWidget()
         general_layout = QVBoxLayout(self.general_tab)
@@ -125,7 +129,7 @@ class SettingsPage(NavigablePage):
     def _build_update_protection_card(self, layout: QVBoxLayout) -> None:
         card = card_frame()
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setContentsMargins(*CARD_MARGINS)
         card_layout.setSpacing(8)
 
         title = QLabel("Защита перед обновлением")
@@ -146,8 +150,8 @@ class SettingsPage(NavigablePage):
         self.auto_restore.toggled.connect(self._save_auto_before_update)
 
         note = QLabel(
-            "Перед установкой обновлений Arch Manager автоматически создаст важную точку восстановления. "
-            "Если обновление не запускается через Arch Manager, эта настройка не используется."
+            "Применяется только к обновлениям через Arch Manager. "
+            "Перед установкой автоматически создаётся важная точка восстановления."
         )
         note.setWordWrap(True)
         muted_text(note)
@@ -161,7 +165,7 @@ class SettingsPage(NavigablePage):
     def _build_timeline_card(self, layout: QVBoxLayout) -> None:
         card = card_frame()
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setContentsMargins(*CARD_MARGINS)
         card_layout.setSpacing(8)
 
         title = QLabel("Автоматические точки по времени")
@@ -193,7 +197,7 @@ class SettingsPage(NavigablePage):
     def _build_storage_card(self, layout: QVBoxLayout) -> None:
         card = card_frame()
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setContentsMargins(*CARD_MARGINS)
         card_layout.setSpacing(8)
 
         title = QLabel("Хранение и автоочистка")
@@ -215,6 +219,7 @@ class SettingsPage(NavigablePage):
 
         actions = QHBoxLayout()
         self.apply_policy_button = QPushButton("Применить рекомендуемую политику")
+        emphasize_primary_button(self.apply_policy_button)
         self.apply_policy_button.setEnabled(False)
         self.apply_policy_button.clicked.connect(self._apply_recommended_policy)
         actions.addWidget(self.apply_policy_button)
@@ -274,6 +279,7 @@ class SettingsPage(NavigablePage):
         self._policy_state = state
         self._loaded_once = True
         self._set_busy(False)
+        self.set_checked_at(self.checked_label, datetime.now().astimezone())
 
         if not state.configured:
             self.timeline_check.setEnabled(False)

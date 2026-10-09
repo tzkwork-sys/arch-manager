@@ -26,6 +26,7 @@ from .recovery_center_page import RecoveryCenterPage
 from .settings_page import SettingsPage
 from .system_page import SystemPage
 from .updates_page import UpdatesPage
+from .theme import PAGE_STYLESHEET
 
 NAV_ITEMS = [
     ("Обзор", "go-home-symbolic"),
@@ -106,6 +107,12 @@ class MainWindow(QMainWindow):
         self.back_to_overview_shortcut.activated.connect(lambda: self.set_page(0))
 
         sidebar = QWidget()
+        sidebar.setStyleSheet(
+            PAGE_STYLESHEET
+            + "QListWidget { background-color: palette(base); }"
+            "QListWidget::item { border-radius: 6px; padding: 0px 6px; }"
+            "QListWidget::item:selected { background-color: palette(highlight); color: palette(highlighted-text); }"
+        )
         sidebar.setFixedWidth(258)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(10, 14, 10, 12)

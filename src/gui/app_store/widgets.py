@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPalette
+from PySide6.QtGui import QFontMetrics, QIcon, QPalette
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
 
 from src.app_store.categories import CATEGORY_LABELS_RU
 from src.app_store.models import Application
 
-from ..theme import muted_text
+from ..theme import CARD_RADIUS, STATUS_COLORS, muted_text
 
 
 # Keep the original dense Stage 2 geometry: five cards fit in the normal
@@ -18,10 +18,10 @@ CARD_MIN_WIDTH = 238
 CARD_MAX_WIDTH = 340
 CARD_HEIGHT = 154
 CARD_ICON_SIZE = 48
-INSTALLED_GREEN = QColor("#55c878")
-UPDATE_AMBER = QColor("#d8a847")
+INSTALLED_GREEN = STATUS_COLORS["ok"]
+UPDATE_AMBER = STATUS_COLORS["warning"]
 CARD_HIGHLIGHT_BORDER_WIDTH = 1
-CARD_HIGHLIGHT_RADIUS = 4
+CARD_HIGHLIGHT_RADIUS = CARD_RADIUS
 
 
 def _card_highlight_stylesheet(object_name: str, *, highlighted: bool) -> str:

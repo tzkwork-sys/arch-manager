@@ -8,6 +8,7 @@ from src.core.dashboard import DashboardSummary
 from .page_base import NavigablePage
 from .recovery_page import RecoveryPage
 from .restore_points_page import RestorePointsPage
+from .theme import emphasize_primary_button
 
 
 class RecoveryCenterPage(NavigablePage):
@@ -27,6 +28,7 @@ class RecoveryCenterPage(NavigablePage):
         )
         if self.header_actions is not None:
             self.restore_points.attach_header_actions(self.header_actions)
+        emphasize_primary_button(self.restore_points.create_button)
         self.restore_points.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Maximum,

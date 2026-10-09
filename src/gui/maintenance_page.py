@@ -45,7 +45,7 @@ from src.core.preferences import (
 )
 
 from .page_base import NavigablePage
-from .theme import card_frame, muted_text
+from .theme import CARD_MARGINS, card_frame, emphasize_primary_button, muted_text
 
 LOGGER = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -156,15 +156,12 @@ class _MaintenanceOption(QFrame):
         self._details_text = "—"
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 10, 14, 10)
+        root.setContentsMargins(*CARD_MARGINS)
         root.setSpacing(7)
 
         heading = QHBoxLayout()
         heading.setSpacing(8)
         self.checkbox = QCheckBox(title)
-        title_font = self.checkbox.font()
-        title_font.setBold(True)
-        self.checkbox.setFont(title_font)
         self.checkbox.stateChanged.connect(lambda _state: self.changed.emit())
 
         self.value = QLabel("Проверяется…")
@@ -257,7 +254,7 @@ class MaintenancePage(NavigablePage):
 
         summary_card = card_frame()
         summary_layout = QHBoxLayout(summary_card)
-        summary_layout.setContentsMargins(18, 11, 14, 11)
+        summary_layout.setContentsMargins(*CARD_MARGINS)
         summary_layout.setSpacing(8)
         self.summary_value = QLabel("Анализ ещё не выполнен")
         summary_font = self.summary_value.font()
@@ -343,7 +340,7 @@ class MaintenancePage(NavigablePage):
 
         config_card = card_frame()
         config_layout = QVBoxLayout(config_card)
-        config_layout.setContentsMargins(14, 11, 14, 11)
+        config_layout.setContentsMargins(*CARD_MARGINS)
         config_layout.setSpacing(6)
         config_heading = QHBoxLayout()
         config_title = QLabel("Файлы настроек после обновлений")
@@ -380,10 +377,11 @@ class MaintenancePage(NavigablePage):
         # The primary action stays visible even when the list itself scrolls.
         action_card = card_frame()
         action_layout = QHBoxLayout(action_card)
-        action_layout.setContentsMargins(14, 11, 14, 11)
+        action_layout.setContentsMargins(*CARD_MARGINS)
         self.selection_label = QLabel("Выберите категории для очистки.")
         self.selection_label.setWordWrap(True)
         self.clean_button = QPushButton("Очистить выбранное")
+        emphasize_primary_button(self.clean_button)
         self.clean_button.setEnabled(False)
         self.clean_button.clicked.connect(self._confirm_cleanup)
         action_layout.addWidget(self.selection_label, 1)

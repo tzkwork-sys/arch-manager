@@ -28,12 +28,12 @@ def test_small_system_warning_count_threshold_is_six():
     assert 'self.state_badge.set_status(\n                    "ok"' in system_page
 
 
-def test_overview_cards_are_whole_clickable_status_outlined_buttons_and_timestamp_is_bottom():
+def test_overview_cards_are_whole_clickable_status_outlined_buttons_and_timestamp_is_below_header():
     source = DASHBOARD.read_text(encoding="utf-8")
     assert "class SummaryCard(QPushButton):" in source
     assert 'border: 2px solid {color.name()}' in source
     assert 'self.open_label = QLabel("Открыть раздел  →")' in source
-    assert source.index("root.addStretch(1)") < source.index("root.addWidget(self.checked_label)")
+    assert source.index("root.addWidget(self.checked_label)") < source.index("root.addLayout(grid)")
     assert "self._refresh_pending = True" in source
 
 

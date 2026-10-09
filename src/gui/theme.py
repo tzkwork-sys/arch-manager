@@ -4,11 +4,38 @@ import math
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QWidget
+
+
+CARD_RADIUS = 8
+CARD_MARGINS = (18, 16, 18, 16)
+PAGE_SPACING = 12
+BUTTON_HEIGHT = 36
+
+# Geometry is shared; colors continue to follow the active KDE palette.
+PAGE_STYLESHEET = f"""
+QFrame[archManagerCard="true"] {{
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: {CARD_RADIUS}px;
+}}
+QPushButton {{
+    background-color: palette(button);
+    color: palette(button-text);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+    padding: 6px 12px;
+    min-height: 22px;
+}}
+QPushButton:hover {{ background-color: palette(midlight); }}
+QPushButton:pressed, QPushButton:checked {{ background-color: palette(mid); }}
+QPushButton:focus {{ border-color: palette(highlight); }}
+QPushButton:disabled {{ color: palette(mid); border-color: palette(mid); }}
+"""
 
 
 STATUS_COLORS = {
-    "ok": QColor("#3fb950"),
+    "ok": QColor("#55c878"),
     "warning": QColor("#d9a400"),
     "critical": QColor("#f85149"),
     "unknown": QColor("#8b949e"),
@@ -44,7 +71,7 @@ def _semantic_button_stylesheet(role: str) -> str:
         "color: #f5f7fa;"
         f"border: 1px solid {_button_css_color(border)};"
         "border-radius: 6px;"
-        "padding: 7px 14px;"
+        "padding: 6px 12px;"
         "font-weight: 600;"
         "}"
         "QPushButton:hover {"
@@ -66,7 +93,7 @@ def _semantic_button_stylesheet(role: str) -> str:
 
 def style_semantic_button(button: QPushButton, role: str) -> None:
     """Apply a semantic color treatment to a push button."""
-    button.setMinimumHeight(max(button.minimumHeight(), 36))
+    button.setMinimumHeight(max(button.minimumHeight(), BUTTON_HEIGHT))
     font = button.font()
     font.setBold(True)
     button.setFont(font)
@@ -186,23 +213,20 @@ class BusySpinner(QWidget):
 
 def emphasize_primary_button(button) -> None:
     """Make a primary action obvious while staying aligned with the active KDE palette."""
-    palette = button.palette()
-    highlight = palette.color(QPalette.ColorRole.Highlight)
-    highlighted_text = palette.color(QPalette.ColorRole.HighlightedText)
-    disabled = palette.color(QPalette.ColorRole.Mid)
-    button.setMinimumHeight(36)
+    button.setProperty("archManagerPrimary", True)
+    button.setMinimumHeight(BUTTON_HEIGHT)
     font = button.font()
     font.setBold(True)
     button.setFont(font)
-    if highlight.isValid() and highlighted_text.isValid():
-        button.setStyleSheet(
-            "QPushButton {"
-            f"background-color: {highlight.name()};"
-            f"color: {highlighted_text.name()};"
-            "padding: 6px 14px;"
-            "border-radius: 5px;"
-            "}"
-            "QPushButton:disabled {"
-            f"background-color: {disabled.name()};"
-            "}"
-        )
+    button.setStyleSheet(
+        "QPushButton {"
+        "background-color: palette(highlight);"
+        "color: palette(highlighted-text);"
+        "border: 1px solid palette(highlight);"
+        "padding: 6px 12px; border-radius: 6px;"
+        "}"
+        "QPushButton:hover { background-color: palette(highlight); border-color: palette(highlighted-text); }"
+        "QPushButton:pressed { background-color: palette(mid); }"
+        "QPushButton:focus { border: 2px solid palette(highlighted-text); padding: 5px 11px; }"
+        "QPushButton:disabled { background-color: palette(button); color: palette(mid); border-color: palette(mid); }"
+    )

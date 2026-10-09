@@ -7,10 +7,10 @@ DETAILS = (ROOT / "src/gui/details_dialog.py").read_text(encoding="utf-8")
 RESTORE_DETAILS = (ROOT / "src/gui/restore_point_technical_dialog.py").read_text(encoding="utf-8")
 
 
-def test_system_page_removes_redundant_top_lines():
+def test_system_page_uses_shared_timestamp_without_redundant_description():
     assert "Расширенная диагностика состояния Arch Linux без изменения системы." not in SYSTEM
-    assert "self.checked_label = self.make_checked_label()" not in SYSTEM
-    assert "self.set_checked_at(self.checked_label" not in SYSTEM
+    assert "self.checked_label = self.make_checked_label()" in SYSTEM
+    assert "self.set_checked_at(self.checked_label, checked_at)" in SYSTEM
     assert 'self.create_page_layout("Система", spacing=8)' in SYSTEM
 
 
