@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QIcon, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -181,14 +182,6 @@ class MainWindow(QMainWindow):
         self.app_store_navigation.blockSignals(True)
         self.app_store_navigation.clear()
 
-        self._add_app_store_section_header("КАТАЛОГ")
-        self._add_app_store_nav_item(
-            "Все приложения", "catalog", icon_name="view-grid-symbolic"
-        )
-        self._add_app_store_nav_item(
-            "Популярные", "popular", icon_name="emblem-favorite-symbolic"
-        )
-
         self._add_app_store_section_header("МОЯ СИСТЕМА")
         self._add_app_store_nav_item(
             "Установленные", "installed",
@@ -196,19 +189,16 @@ class MainWindow(QMainWindow):
             icon_fallbacks=("dialog-ok-apply", "emblem-default-symbolic", "package-x-generic"),
         )
         self._add_app_store_nav_item(
-            "Обновления", "updates",
-            icon_name="system-software-update-symbolic",
-            icon_fallbacks=("view-refresh",),
-        )
-        self._add_app_store_nav_item(
             "Системные пакеты", "system-packages",
             icon_name="package-x-generic",
             icon_fallbacks=("applications-system",),
         )
 
-        header = QListWidgetItem("КАТЕГОРИИ")
-        self._style_app_store_section_header(header)
-        self.app_store_navigation.addItem(header)
+        self._add_app_store_section_separator()
+        self._add_app_store_section_header("КАТАЛОГ")
+        self._add_app_store_nav_item(
+            "Все приложения", "catalog", icon_name="view-grid-symbolic"
+        )
 
         for entry in categories or ():
             try:
@@ -226,6 +216,27 @@ class MainWindow(QMainWindow):
         item = QListWidgetItem(text)
         self._style_app_store_section_header(item)
         self.app_store_navigation.addItem(item)
+
+    def _add_app_store_section_separator(self) -> None:
+        """Separate local-system actions from catalog browsing without a selectable row."""
+        item = QListWidgetItem()
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        item.setData(Qt.ItemDataRole.UserRole, "separator")
+        item.setSizeHint(QSize(220, 28))
+        self.app_store_navigation.addItem(item)
+
+        separator = QWidget()
+        layout = QVBoxLayout(separator)
+        layout.setContentsMargins(10, 13, 10, 14)
+        line = QFrame()
+        line.setObjectName("appStoreSectionSeparator")
+        line.setFixedHeight(1)
+        # Match the section headings using the current theme's accent.
+        palette = self.app_store_navigation.palette()
+        divider = palette.color(QPalette.ColorRole.Highlight).lighter(125)
+        line.setStyleSheet(f"background-color: {divider.name()}; border: none;")
+        layout.addWidget(line)
+        self.app_store_navigation.setItemWidget(item, separator)
 
     def _style_app_store_section_header(self, item: QListWidgetItem) -> None:
         """Make section names the visual separators, not the rows inside them."""
@@ -294,7 +305,7 @@ class MainWindow(QMainWindow):
         if item is None:
             return
         entry = item.data(Qt.ItemDataRole.UserRole)
-        if entry not in {"catalog", "popular", "installed", "updates", "system-packages", "category"}:
+        if entry not in {"catalog", "installed", "system-packages", "category"}:
             return
         category = item.data(Qt.ItemDataRole.UserRole + 1)
         self.app_store_page.select_sidebar_entry(

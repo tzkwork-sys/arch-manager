@@ -51,22 +51,20 @@ def test_stage732_installed_aur_filter_is_local_and_installed_only():
     ]
 
 
-def test_stage732_page_contract_survives_stage75_source_expansion():
+def test_installed_page_keeps_source_selection_without_updates_view():
     page = (ROOT / "src/gui/app_store/page.py").read_text(encoding="utf-8")
 
-    assert 'source_selectable = view in {"catalog", "installed", "updates"}' in page
+    assert 'source_selectable = view in {"catalog", "installed"}' in page
     assert 'view == "installed" and source == "official"' in page
     assert "self._aur_service.installed_async" in page
     assert "filter_installed_aur_packages" in page
     assert 'self._queue_aur_installed()' in page
     assert 'self._queue_aur_installed()' in page
-    assert 'Источник обновлений: все, официальные или AUR' in page
+    assert 'Источник установленных приложений: все, официальные, AUR или локальные' in page
 
 
-def test_stage732_official_update_policy_is_visible_in_updates_view():
+def test_store_does_not_show_removed_updates_policy_note():
     page = (ROOT / "src/gui/app_store/page.py").read_text(encoding="utf-8")
 
-    assert "appStoreOfficialUpdatePolicyNote" in page
-    assert "полным " in page and "системным обновлением Arch Linux" in page
-    assert "отдельной кнопки «Обновить»" in page
-    assert 'self.update_policy_note.setVisible(view == "updates")' in page
+    assert "appStoreOfficialUpdatePolicyNote" not in page
+    assert "self.update_policy_note" not in page

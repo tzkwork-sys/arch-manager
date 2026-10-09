@@ -3,7 +3,6 @@ from __future__ import annotations
 from concurrent.futures import Future
 from datetime import datetime
 import logging
-from pathlib import Path
 from math import floor
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt, Signal, Slot
@@ -14,7 +13,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -26,15 +24,12 @@ from PySide6.QtWidgets import (
 from src.app_store.aur.errors import AurInvalidResponse, AurNetworkError, AurRpcError
 from src.app_store.aur.models import AurInstalledSnapshot, AurPackage
 from src.app_store.aur.service import AurService
-from src.app_store.aur.planner import AurUpdateAllPlan, AurUpdatePlanner
 from src.app_store.catalog import AppCatalogService, CatalogLoadResult
 from src.app_store.categories import CATEGORY_LABELS_RU
 from src.app_store.installed import InstalledApplications
 from src.app_store.integration import (
     current_update_details,
-    invalidate_update_state,
     last_app_store_activity,
-    record_aur_bulk_update,
 )
 from src.app_store.local_installed import LocalInstalledApplicationReader
 from src.app_store.media import MediaCache
@@ -58,7 +53,6 @@ from .aur.integration import (
     prioritize_exact_aur_match,
 )
 from .aur.widgets import AurPackageCard
-from .aur.terminal import AurTerminalProcess, AurTerminalResult
 from .details import ApplicationDetailsDialog
 from .widgets import ApplicationCard, CARD_MAX_WIDTH, CARD_MIN_WIDTH
 
@@ -84,11 +78,6 @@ class _AurSearchSignals(QObject):
 
 class _AurInstalledSignals(QObject):
     loaded = Signal(object, int)
-    failed = Signal(object, int)
-
-
-class _AurUpdateAllSignals(QObject):
-    planned = Signal(object, int)
     failed = Signal(object, int)
 
 
@@ -157,10 +146,6 @@ class AppStorePage(NavigablePage):
         self._columns = 1
         self._update_details: object | None = None
         self._view_switching = False
-        # «Все приложения» и «Популярные» могут использовать одну и ту же
-        # сортировку, поэтому выбранный пункт бокового меню храним явно.
-        self._sidebar_catalog_entry = "catalog"
-        self._catalog_source_before_view: str | None = None
         self._filters_enabled = False
         self._aur_results: tuple[AurPackage, ...] = ()
         self._aur_result_query = ""
@@ -173,8 +158,6 @@ class AppStorePage(NavigablePage):
         self._aur_installed_loading = False
         self._aur_installed_error: Exception | None = None
         self._aur_installed_generation = 0
-        self._aur_update_generation = 0
-        self._aur_update_all_busy = False
         self._popularity_scores: dict[str, float] = {}
         self._popularity_counts: dict[str, int] = {}
         self._popularity_loading = False
@@ -191,8 +174,6 @@ class AppStorePage(NavigablePage):
         self._system_package_next_use_cache = True
 
         self._update_details = current_update_details()
-        self._aur_update_planner = AurUpdatePlanner(self._aur_service) if self._aur_service is not None else None
-        self._aur_terminal = AurTerminalProcess(self) if self._aur_service is not None else None
 
         self._signals = _CatalogSignals(self)
         self._signals.loaded.connect(self._catalog_loaded)
@@ -203,18 +184,12 @@ class AppStorePage(NavigablePage):
         self._aur_installed_signals = _AurInstalledSignals(self)
         self._aur_installed_signals.loaded.connect(self._aur_installed_loaded)
         self._aur_installed_signals.failed.connect(self._aur_installed_failed)
-        self._aur_update_all_signals = _AurUpdateAllSignals(self)
-        self._aur_update_all_signals.planned.connect(self._aur_update_all_planned)
-        self._aur_update_all_signals.failed.connect(self._aur_update_all_failed)
         self._popularity_signals = _PopularitySignals(self)
         self._popularity_signals.loaded.connect(self._popularity_loaded_result)
         self._popularity_signals.failed.connect(self._popularity_failed)
         self._system_package_signals = _SystemPackageSignals(self)
         self._system_package_signals.loaded.connect(self._system_package_search_loaded)
         self._system_package_signals.failed.connect(self._system_package_search_failed)
-        if self._aur_terminal is not None:
-            self._aur_terminal.completed.connect(self._aur_update_all_completed)
-            self._aur_terminal.failed.connect(self._aur_update_all_terminal_failed)
 
         layout = self.create_page_layout(None, spacing=10)
 
@@ -224,13 +199,6 @@ class AppStorePage(NavigablePage):
         self.reload_button.clicked.connect(self._reload_requested)
         self.add_header_action(self.reload_button)
         emphasize_primary_button(self.reload_button)
-
-        self.aur_update_all_button = QPushButton("Обновить все AUR")
-        self.aur_update_all_button.setObjectName("appStoreAurUpdateAllButton")
-        self.aur_update_all_button.setAutoDefault(False)
-        self.aur_update_all_button.clicked.connect(self._update_all_aur_requested)
-        self.aur_update_all_button.setVisible(False)
-        self.add_header_action(self.aur_update_all_button)
 
         self.checked_label = self.make_checked_label()
 
@@ -288,16 +256,6 @@ class AppStorePage(NavigablePage):
         )
         self.installed_button.setVisible(False)
 
-        self.updates_button = QToolButton()
-        self.updates_button.setObjectName("appStoreUpdatesFilter")
-        self.updates_button.setText("Обновления")
-        self.updates_button.setCheckable(True)
-        self.updates_button.setMinimumHeight(36)
-        self.updates_button.toggled.connect(
-            lambda checked: self._view_changed("updates", checked)
-        )
-        self.updates_button.setVisible(False)
-
         filters.addLayout(self.header_actions)
         layout.addLayout(filters)
         layout.addWidget(self.checked_label)
@@ -331,19 +289,6 @@ class AppStorePage(NavigablePage):
         muted_text(self.cache_label)
         status_row.addWidget(self.cache_label)
         layout.addLayout(status_row)
-
-        self.update_policy_note = QLabel(
-            "Официальные приложения обновляются только вместе с полным системным обновлением Arch Linux. "
-            "Для официального приложения отдельной кнопки «Обновить» нет. "
-            "AUR-пакеты обновляются отдельно через yay; перед этим Arch Manager требует завершить "
-            "ожидающее официальное системное обновление. Локальные пакеты показываются в магазине, "
-            "но источник их обновлений Arch Manager не определяет автоматически."
-        )
-        self.update_policy_note.setObjectName("appStoreOfficialUpdatePolicyNote")
-        self.update_policy_note.setWordWrap(True)
-        muted_text(self.update_policy_note)
-        self.update_policy_note.setVisible(False)
-        layout.addWidget(self.update_policy_note)
 
         self.body_stack = QStackedWidget()
         self.body_stack.setObjectName("appStoreBody")
@@ -408,10 +353,6 @@ class AppStorePage(NavigablePage):
         self.scroll.verticalScrollBar().valueChanged.connect(self._maybe_append_batch)
         state_layout.addWidget(self.scroll, 1)
 
-        self.catalog_system_updates_prompt = self._build_system_updates_prompt(
-            "catalogSystemUpdatesPrompt"
-        )
-        state_layout.addWidget(self.catalog_system_updates_prompt)
         return state
 
     def _build_empty_state(self) -> QWidget:
@@ -432,68 +373,8 @@ class AppStorePage(NavigablePage):
         muted_text(self.empty_text)
         layout.addWidget(self.empty_text)
 
-        self.empty_system_updates_prompt = self._build_system_updates_prompt(
-            "emptySystemUpdatesPrompt"
-        )
-        layout.addWidget(self.empty_system_updates_prompt)
         layout.addStretch(2)
         return state
-
-    def _build_system_updates_prompt(self, object_name: str) -> QWidget:
-        prompt = QWidget()
-        prompt.setObjectName(object_name)
-        prompt_layout = QVBoxLayout(prompt)
-        prompt_layout.setContentsMargins(0, 14, 0, 8)
-        prompt_layout.setSpacing(8)
-
-        label = QLabel("")
-        label.setObjectName(f"{object_name}Label")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        muted_text(label)
-        prompt_layout.addWidget(label)
-
-        button = QPushButton("Перейти к системным обновлениям")
-        button.setObjectName(f"{object_name}Button")
-        button.setMinimumHeight(36)
-        button.setMaximumWidth(280)
-        button.clicked.connect(self.updates_requested.emit)
-        button_row = QHBoxLayout()
-        button_row.setContentsMargins(0, 0, 0, 0)
-        button_row.addStretch(1)
-        button_row.addWidget(button)
-        button_row.addStretch(1)
-        prompt_layout.addLayout(button_row)
-
-        prompt._status_label = label
-        prompt.setVisible(False)
-        return prompt
-
-    def _system_update_count(self) -> int:
-        details = self._update_details
-        official = getattr(details, "official", None) if details is not None else None
-        if (
-            official is None
-            or not getattr(official, "available", False)
-            or getattr(official, "error", None) is not None
-        ):
-            return 0
-        return len(getattr(official, "items", ()) or ())
-
-    @staticmethod
-    def _system_updates_text(count: int, *, has_app_updates: bool) -> str:
-        prefix = "Также доступны системные обновления" if has_app_updates else "Доступны системные обновления"
-        return f"{prefix} ({count} шт.)"
-
-    def _update_system_updates_prompts(self, *, app_update_count: int) -> None:
-        system_count = self._system_update_count()
-        visible = self._active_view() == "updates" and system_count > 0
-        text = self._system_updates_text(
-            system_count,
-            has_app_updates=app_update_count > 0,
-        )
-        for prompt in (self.catalog_system_updates_prompt, self.empty_system_updates_prompt):
-            prompt._status_label.setText(text if visible else "")
-            prompt.setVisible(visible)
 
     def _build_error_state(self) -> QWidget:
         state = QWidget()
@@ -621,7 +502,7 @@ class AppStorePage(NavigablePage):
         self._apply_filters()
         if self._active_view() == "system-packages":
             self._queue_system_package_search(use_cache=result.cache_hit)
-        elif self._active_view() in {"installed", "updates"}:
+        elif self._active_view() == "installed":
             self._queue_aur_installed(use_cache=result.cache_hit)
         elif self._active_view() == "catalog":
             # Local .pkg.tar.zst applications are classified from the same
@@ -684,12 +565,15 @@ class AppStorePage(NavigablePage):
 
     def select_sidebar_entry(self, entry: str, category: str | None = None) -> None:
         """Apply a selection coming from the contextual application sidebar."""
+        if entry == "updates":
+            # Older callers also use the single, shared Updates page now.
+            self.updates_requested.emit()
+            return
         if entry == "system-packages":
             self._view_switching = True
             try:
                 self._system_packages_mode = True
                 self.installed_button.setChecked(False)
-                self.updates_button.setChecked(False)
             finally:
                 self._view_switching = False
             self.category_combo.blockSignals(True)
@@ -709,25 +593,18 @@ class AppStorePage(NavigablePage):
         if entry == "installed":
             self.installed_button.setChecked(True)
             return
-        if entry == "updates":
-            self.updates_button.setChecked(True)
-            return
-        if entry not in {"catalog", "popular", "category"}:
+        if entry not in {"catalog", "category"}:
             return
 
-        # Catalog/category/popular entries always leave special views first.
+        # Catalog/category entries always leave special views first.
         self._view_switching = True
         try:
             self.installed_button.setChecked(False)
-            self.updates_button.setChecked(False)
         finally:
             self._view_switching = False
 
-        if entry in {"catalog", "popular"}:
-            self._sidebar_catalog_entry = entry
+        if entry == "catalog":
             self._set_sort_value("popularity")
-        elif entry == "category":
-            self._sidebar_catalog_entry = "category"
 
         wanted = category if entry == "category" else None
         index = self.category_combo.findData(wanted)
@@ -750,13 +627,11 @@ class AppStorePage(NavigablePage):
     def sidebar_selection(self) -> tuple[str, str | None]:
         """Return the contextual sidebar item represented by the current page state."""
         view = self._active_view()
-        if view in {"installed", "updates", "system-packages"}:
+        if view in {"installed", "system-packages"}:
             return view, None
         category = self.category_combo.currentData()
         if isinstance(category, str):
             return "category", category
-        if self._sidebar_catalog_entry == "popular" and self._selected_sort() == "popularity":
-            return "popular", None
         return "catalog", None
 
     def _emit_sidebar_selection(self) -> None:
@@ -767,7 +642,6 @@ class AppStorePage(NavigablePage):
         self._filters_enabled = enabled
         self.search_edit.setEnabled(enabled)
         self.installed_button.setEnabled(enabled)
-        self.updates_button.setEnabled(enabled)
         self.sort_combo.setEnabled(enabled)
         self._sync_filter_controls()
 
@@ -783,9 +657,7 @@ class AppStorePage(NavigablePage):
         )
         self.reload_button.setText("Обновить пакеты" if system_mode else "Обновить каталог")
 
-        # Stage 7.3.2 contract was: source_selectable = view in {"catalog", "installed"}
-        # Stage 7.5 intentionally adds the updates view to source selection.
-        source_selectable = view in {"catalog", "installed", "updates"}
+        source_selectable = view in {"catalog", "installed"}
         self.source_combo.setEnabled(self._filters_enabled and source_selectable)
         self.sort_combo.setEnabled(self._filters_enabled and not system_mode)
         self.category_combo.setEnabled(
@@ -802,8 +674,6 @@ class AppStorePage(NavigablePage):
             self.source_combo.setToolTip("Источник приложений: все, официальные, AUR или локальные")
         elif view == "installed":
             self.source_combo.setToolTip("Источник установленных приложений: все, официальные, AUR или локальные")
-        else:
-            self.source_combo.setToolTip("Источник обновлений: все, официальные или AUR; локальные пакеты показываются отдельно")
 
     def _set_source_value(self, source: str) -> None:
         index = self.source_combo.findData(source)
@@ -831,14 +701,8 @@ class AppStorePage(NavigablePage):
 
     @Slot()
     def _sort_changed(self, *_args) -> None:
-        # «Популярные» — навигационный ярлык на сортировку по популярности.
-        # Если в нём вручную выбрать другую сортировку, возвращаем состояние
-        # обычного каталога. Но включение популярности в «Все приложения» не
-        # должно самовольно переносить выделение на пункт «Популярные».
         if self._selected_sort() == "popularity":
             self._ensure_popularity_loaded()
-        elif self._sidebar_catalog_entry == "popular":
-            self._sidebar_catalog_entry = "catalog"
         self._emit_sidebar_selection()
         self._update_popularity_status()
         if self._loaded:
@@ -1070,7 +934,7 @@ class AppStorePage(NavigablePage):
         self._emit_sidebar_selection()
         self._update_popularity_status()
         self._apply_filters()
-        if view in {"installed", "updates"}:
+        if view == "installed":
             self._clear_system_package_search()
             self._queue_aur_installed()
         else:
@@ -1086,14 +950,7 @@ class AppStorePage(NavigablePage):
         try:
             if checked:
                 self._system_packages_mode = False
-            if checked and view == "installed":
-                self.updates_button.setChecked(False)
-            elif checked and view == "updates":
-                self.installed_button.setChecked(False)
-
             active_view = self._active_view()
-            # Stage 7.2/7.3 historical behavior forced updates to official:
-            # self._set_source_value("official")
             if active_view == "installed" and self._selected_source() != "official":
                 if self.category_combo.currentData() is not None:
                     self.category_combo.blockSignals(True)
@@ -1114,14 +971,12 @@ class AppStorePage(NavigablePage):
             if self._active_view() == "catalog":
                 self._queue_aur_search()
                 self._queue_system_package_search()
-            elif self._active_view() in {"installed", "updates"}:
+            elif self._active_view() == "installed":
                 self._queue_aur_installed()
 
     def _active_view(self) -> str:
         if self._system_packages_mode:
             return "system-packages"
-        if self.updates_button.isChecked():
-            return "updates"
         if self.installed_button.isChecked():
             return "installed"
         return "catalog"
@@ -1325,7 +1180,7 @@ class AppStorePage(NavigablePage):
         source = self._selected_source()
         if view == "catalog":
             return source in {"all", "local"}
-        if view in {"installed", "updates"}:
+        if view == "installed":
             return source in {"all", "aur", "local"}
         return False
 
@@ -1519,13 +1374,11 @@ class AppStorePage(NavigablePage):
                 self.aur_status_label.setText("Локальные: определяю…")
             elif self._aur_installed_error is not None and not self._local_installed_results:
                 self.aur_status_label.setText("Локальные: недоступны")
-            elif view == "updates":
-                self.aur_status_label.setText("Локальные: обновления не проверяются")
             else:
                 self.aur_status_label.setText(f"Локальные: {len(self._local_installed_results)}")
             self._sync_activity_spinner()
             return
-        if view in {"installed", "updates"}:
+        if view == "installed":
             if source == "official":
                 self.aur_status_label.setText("")
             elif self._aur_installed_loading:
@@ -1533,11 +1386,7 @@ class AppStorePage(NavigablePage):
             elif self._aur_installed_error is not None:
                 self.aur_status_label.setText(self._friendly_aur_error(self._aur_installed_error))
             else:
-                if view == "updates":
-                    count = sum(1 for item in self._aur_installed_results if item.update_available)
-                    self.aur_status_label.setText(f"AUR: обновлений {count}")
-                else:
-                    self.aur_status_label.setText(f"AUR: установлено {len(self._aur_installed_results)}")
+                self.aur_status_label.setText(f"AUR: установлено {len(self._aur_installed_results)}")
             self._sync_activity_spinner()
             return
         if view != "catalog":
@@ -1630,7 +1479,6 @@ class AppStorePage(NavigablePage):
         view = self._active_view()
         if view == "system-packages":
             term = self.search_edit.text().strip()
-            self.update_policy_note.setVisible(False)
             self._filtered = (
                 self._system_package_results
                 if len(term) >= 2 and self._system_package_query == term
@@ -1639,12 +1487,9 @@ class AppStorePage(NavigablePage):
             self.empty_text.setText(self._system_package_empty_text())
             self._update_system_package_status()
             self.popularity_status_label.setText("")
-            self.aur_update_all_button.setVisible(False)
-            self.aur_update_all_button.setEnabled(False)
             self._reset_cards()
             total = len(self._filtered)
             self.count_label.setText(self._package_count_text(total) if total else "")
-            self._update_system_updates_prompts(app_update_count=0)
             if total == 0:
                 self._show_state(self.STATE_EMPTY)
                 return
@@ -1660,7 +1505,6 @@ class AppStorePage(NavigablePage):
         )
         base = self._index.filter(query)
         local_base = self._local_index.filter(query)
-        self.update_policy_note.setVisible(view == "updates")
         if view == "installed":
             source = self._selected_source()
             official_installed = (
@@ -1691,35 +1535,6 @@ class AppStorePage(NavigablePage):
                 self.empty_text.setText("Не удалось получить список сторонних установленных приложений.")
             else:
                 self.empty_text.setText("Установленных приложений по текущему фильтру не найдено.")
-        elif view == "updates":
-            source = self._selected_source()
-            official_items = (
-                self._update_details.official.items
-                if self._update_details is not None
-                else None
-            )
-            official_updates = (
-                ApplicationUpdateMapper.map_updates(base, official_items)
-                if source in {"all", "official"}
-                else ()
-            )
-            aur_updates = (
-                tuple(item for item in self._aur_installed_results if item.update_available)
-                if source in {"all", "aur"}
-                else ()
-            )
-            self._filtered = merge_store_results(
-                official_updates,
-                aur_updates,
-                source=source,
-                local=(),
-            )
-            if source in {"all", "aur"} and self._aur_installed_loading and not self._filtered:
-                self.empty_text.setText("Проверяю установленные AUR-пакеты…")
-            elif source in {"all", "aur"} and self._aur_installed_error is not None and not self._filtered:
-                self.empty_text.setText("Не удалось получить AUR-обновления.")
-            else:
-                self.empty_text.setText("Обновлений приложений по текущему фильтру сейчас нет.")
         else:
             source = self._selected_source()
             aur = self._aur_results_for_current_query()
@@ -1736,20 +1551,9 @@ class AppStorePage(NavigablePage):
         self._filtered = self._sort_results(self._filtered)
         self._update_aur_status()
         self._update_popularity_status()
-        aur_update_count = sum(1 for item in self._aur_installed_results if item.update_available)
-        self.aur_update_all_button.setVisible(
-            view == "updates" and self._selected_source() in {"all", "aur"}
-        )
-        self.aur_update_all_button.setEnabled(
-            aur_update_count > 0 and not self._aur_update_all_busy
-        )
-        self.aur_update_all_button.setText(
-            f"Обновить все AUR ({aur_update_count})" if aur_update_count else "Обновить все AUR"
-        )
         self._reset_cards()
         total = len(self._filtered)
         self.count_label.setText(self._count_text(total))
-        self._update_system_updates_prompts(app_update_count=total if view == "updates" else 0)
         if total == 0:
             self._show_state(self.STATE_EMPTY)
             return
@@ -1885,116 +1689,8 @@ class AppStorePage(NavigablePage):
                 self._queue_system_package_search(use_cache=False, immediate=True)
             else:
                 self.reload_catalog(use_cache=False)
-                if self._active_view() in {"installed", "updates"}:
+                if self._active_view() == "installed":
                     self._queue_aur_installed(use_cache=False)
-
-    @Slot()
-    def _update_all_aur_requested(self) -> None:
-        if self._aur_update_all_busy or self._aur_update_planner is None:
-            return
-        names = tuple(item.name for item in self._aur_installed_results if item.update_available)
-        if not names:
-            self._apply_filters()
-            return
-        self._aur_update_generation += 1
-        generation = self._aur_update_generation
-        self._aur_update_all_busy = True
-        self.aur_update_all_button.setEnabled(False)
-        self.aur_update_all_button.setText("Проверяю AUR…")
-        future = self._aur_update_planner.plan_all_async(names)
-        future.add_done_callback(lambda done, g=generation: self._aur_update_all_future_done(done, g))
-
-    def _aur_update_all_future_done(self, future: Future, generation: int) -> None:
-        try:
-            plan = future.result()
-        except Exception as exc:
-            self._aur_update_all_signals.failed.emit(exc, generation)
-        else:
-            self._aur_update_all_signals.planned.emit(plan, generation)
-
-    @Slot(object, int)
-    def _aur_update_all_planned(self, plan: object, generation: int) -> None:
-        if generation != self._aur_update_generation or not isinstance(plan, AurUpdateAllPlan):
-            return
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Обновить все AUR")
-        box.setText(f"Обновить все найденные AUR-пакеты ({len(plan.package_names)} шт.)?")
-        box.setInformativeText(
-            "Откроется отдельный терминал для обновления всех AUR-пакетов. Официальные пакеты этой кнопкой не обновляются. "
-            "Проверяйте PKGBUILD/diff и вопросы yay перед подтверждением."
-        )
-        box.setDetailedText("Команда: " + " ".join(plan.command_preview) + "\n\n" + "\n".join(plan.package_names))
-        accept = box.addButton("Открыть терминал и обновить", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        if box.clickedButton() is not accept:
-            self._aur_update_all_busy = False
-            self._apply_filters()
-            return
-        launcher = Path(__file__).resolve().parents[3] / "scripts" / "run-aur-terminal.sh"
-        try:
-            assert self._aur_terminal is not None
-            self._aur_terminal.start(launcher, action="update-all")
-        except Exception as exc:
-            self._aur_update_all_busy = False
-            self._show_aur_update_all_error(exc)
-            self._apply_filters()
-            return
-        self.aur_update_all_button.setText("AUR обновляется в терминале…")
-
-    @Slot(object, int)
-    def _aur_update_all_failed(self, error: object, generation: int) -> None:
-        if generation != self._aur_update_generation:
-            return
-        self._aur_update_all_busy = False
-        self._show_aur_update_all_error(error if isinstance(error, Exception) else RuntimeError(str(error)))
-        self._apply_filters()
-
-    def _show_aur_update_all_error(self, error: Exception) -> None:
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        if error.__class__.__name__ == "AurSystemUpdateRequired":
-            box.setWindowTitle("Сначала обновите систему")
-            box.setText("Перед обновлением AUR сначала выполните полное системное обновление Arch Linux.")
-            go = box.addButton("Перейти к системным обновлениям", QMessageBox.ButtonRole.ActionRole)
-            box.addButton("Закрыть", QMessageBox.ButtonRole.RejectRole)
-            box.exec()
-            if box.clickedButton() is go:
-                self.updates_requested.emit()
-            return
-        box.setWindowTitle("AUR-обновление недоступно")
-        box.setText(str(error) or "Не удалось начать обновление AUR.")
-        detail = getattr(error, "detail", "")
-        if detail:
-            box.setDetailedText(str(detail)[:4000])
-        box.exec()
-
-    @Slot(object)
-    def _aur_update_all_completed(self, result: object) -> None:
-        if not isinstance(result, AurTerminalResult) or result.action != "update-all":
-            return
-        self._aur_update_all_busy = False
-        if result.state == "success":
-            record_aur_bulk_update(result="success", message="Обновлены все AUR-пакеты")
-            invalidate_update_state()
-            self.package_state_changed.emit()
-        elif result.state not in {"cancelled", "interrupted"}:
-            record_aur_bulk_update(
-                result="failed", message=result.detail or f"yay:{result.return_code}"
-            )
-        self._queue_aur_installed(use_cache=False)
-        self._update_details = current_update_details()
-        self._apply_filters()
-
-    @Slot(str)
-    def _aur_update_all_terminal_failed(self, message: str) -> None:
-        if not self._aur_update_all_busy:
-            return
-        self._aur_update_all_busy = False
-        record_aur_bulk_update(result="failed", message=message)
-        self._show_aur_update_all_error(RuntimeError(message))
-        self._apply_filters()
 
     def _refresh_last_action_label(self) -> None:
         entry = last_app_store_activity()
@@ -2082,7 +1778,6 @@ class AppStorePage(NavigablePage):
             self._aur_installed_loading,
             self._popularity_loading,
             self._system_package_loading,
-            self._aur_update_all_busy,
             queued_aur,
             queued_system,
         ))

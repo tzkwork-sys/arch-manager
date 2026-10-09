@@ -165,7 +165,7 @@ class _PopularityService:
 
 
 @pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed in the artifact test environment")
-def test_popular_sidebar_and_sort_combo_sort_official_apps_by_pkgstats():
+def test_catalog_and_sort_combo_sort_official_apps_by_pkgstats():
     from PySide6.QtWidgets import QApplication
     from src.gui.app_store.page import AppStorePage
 
@@ -183,12 +183,13 @@ def test_popular_sidebar_and_sort_combo_sort_official_apps_by_pkgstats():
     assert [item.name for item in page._filtered] == ["Zulu", "Alpha"]
     assert page.sidebar_selection() == ("catalog", None)
 
-    page.select_sidebar_entry("popular")
+    page.sort_combo.setCurrentIndex(page.sort_combo.findData("name"))
     app.processEvents()
-
-    assert page.sort_combo.currentData() == "popularity"
+    assert [item.name for item in page._filtered] == ["Alpha", "Zulu"]
+    assert selections[-1] == ("catalog", None)
+    page.sort_combo.setCurrentIndex(page.sort_combo.findData("popularity"))
     assert [item.name for item in page._filtered] == ["Zulu", "Alpha"]
-    assert selections[-1] == ("popular", None)
+    assert selections[-1] == ("catalog", None)
     assert page.popularity_status_label.text() == "Популярность: pkgstats"
 
     page.select_sidebar_entry("catalog")
@@ -199,10 +200,10 @@ def test_popular_sidebar_and_sort_combo_sort_official_apps_by_pkgstats():
     page.deleteLater()
 
 
-def test_main_window_popular_sidebar_source_contract():
+def test_main_window_has_no_redundant_popular_sidebar_entry():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
     source = (root / "src/gui/main_window.py").read_text(encoding="utf-8")
-    assert '"Популярные", "popular"' in source
-    assert 'entry not in {"catalog", "popular", "installed", "updates", "system-packages", "category"}' in source
+    assert '"Популярные", "popular"' not in source
+    assert 'entry not in {"catalog", "installed", "system-packages", "category"}' in source

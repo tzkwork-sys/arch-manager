@@ -99,16 +99,15 @@ printf '%s\n' '============================================================'
 printf '%s\n' ' Arch Manager — обновление системы'
 printf '%s\n' '============================================================'
 printf '\n'
-printf '%s\n' 'Введите административный пароль один раз в этом терминале.'
+printf '%s\n' 'Если требуется, введите административный пароль один раз в этом терминале.'
 printf '%s\n' 'На вопросы pacman/yay ([Y/n], [y/N] и т. п.) отвечайте здесь же.'
 printf '%s\n' 'Arch Manager не получает и не сохраняет пароль.'
 printf '\n'
 
 write_status running "authorization"
-# Start a fresh terminal-bound sudo session. Because this is a real terminal,
-# sudo handles the password itself and package-manager prompts remain fully
-# interactive. No password ever passes through the GUI.
-"$SUDO" -k
+# Reuse a valid terminal-bound sudo ticket when system policy permits it.
+# Otherwise sudo asks for the password itself in this real terminal; the GUI
+# never receives it. Do not invalidate credentials from a preceding operation.
 "$SUDO" -v
 sudo_rc=$?
 if (( sudo_rc != 0 )); then

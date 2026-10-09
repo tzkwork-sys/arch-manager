@@ -100,8 +100,8 @@ def test_stage72_search_contract_remains_isolated_after_stage73():
     assert "AurPackageCard" in page
     assert "AurPackageDetailsDialog" in page
     assert "prioritize_exact_aur_match" in page
-    assert "_catalog_source_before_view" in page
-    assert 'self._set_source_value("official")' in page
+    assert 'source_selectable = view in {"catalog", "installed"}' in page
+    assert 'self._set_source_value("official")' not in page
     assert "_render_cursor" in page
     assert "Unable to render application-store card" in page
     assert '_plain_label("AUR")' in aur_widgets
@@ -252,7 +252,7 @@ def test_stage72_aur_failure_does_not_hide_official_results():
 
 
 @pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed in the artifact test environment")
-def test_stage72_installed_and_stage75_updates_keep_selected_source():
+def test_installed_view_keeps_source_when_requesting_shared_updates():
     from PySide6.QtWidgets import QApplication
     from src.gui.app_store.page import AppStorePage
 
@@ -272,17 +272,18 @@ def test_stage72_installed_and_stage75_updates_keep_selected_source():
     assert page.source_combo.currentData() == "aur"
     assert page.source_combo.isEnabled() is True
 
-    # Stage 7.5 makes Updates source-aware as well. The user's selected
-    # AUR source must remain selected and available instead of being
-    # temporarily forced back to Official.
-    page.updates_button.setChecked(True)
+    requests = []
+    page.updates_requested.connect(lambda: requests.append(True))
+    page.select_sidebar_entry("updates")
     app.processEvents()
     app.processEvents()
     assert page.source_combo.currentData() == "aur"
     assert page.source_combo.isEnabled() is True
+    assert requests == [True]
+    assert page._active_view() == "installed"
 
-    # Leaving Updates preserves the user's source selection.
-    page.updates_button.setChecked(False)
+    # Returning to the catalog preserves the user's source selection.
+    page.select_sidebar_entry("catalog")
     app.processEvents()
     assert page.source_combo.currentData() == "aur"
     page.deleteLater()

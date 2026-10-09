@@ -104,13 +104,39 @@ def test_stage75_runner_and_gui_contracts():
     assert '"$YAY" -Sua' in runner
     assert '"$YAY" -S --aur -- "$PACKAGE"' in runner
     assert 'update-all' in terminal
-    assert 'appStoreAurUpdateAllButton' in page
-    assert 'AurUpdateAllPlan' in page
-    assert 'item.update_available' in page
+    assert 'appStoreAurUpdateAllButton' not in page
+    assert 'AurUpdateAllPlan' not in page
+    updates = (ROOT / "src/gui/updates_page.py").read_text(encoding="utf-8")
+    assert "self._selected_aur_packages()" in updates
+    assert "aur_packages=aur_packages" in updates
     assert 'AurUpdatePlan' in details
-    assert 'Обновить через yay' in details
+    assert 'Перейти к обновлениям' in details
     assert 'self.remove_button.setVisible(True)' in details
     assert '--noconfirm' not in runner
+
+@pytest.mark.skipif(__import__("importlib.util").util.find_spec("PySide6") is None, reason="PySide6 is not installed")
+def test_aur_details_routes_update_to_shared_page_without_starting_transaction():
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QApplication, QDialog
+    from src.gui.app_store.aur.details import AurPackageDetailsDialog
+
+    app = QApplication.instance() or QApplication([])
+    planner = Mock()
+    package = AurPackage(
+        name="demo-aur", package_base="demo-aur", version="2.0-1",
+        installed=True, installed_version="1.0-1", update_available=True,
+    )
+    dialog = AurPackageDetailsDialog(package, aur_service=FakeService(), update_planner=planner)
+    requests = []
+    dialog.updates_requested.connect(lambda: requests.append(True))
+    assert dialog.install_button.text() == "Перейти к обновлениям"
+    dialog.install_button.click()
+    assert requests == [True]
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    assert not dialog._terminal.running
+    planner.plan_async.assert_not_called()
+    dialog.deleteLater()
+
 
 @pytest.mark.skipif(__import__("importlib.util").util.find_spec("PySide6") is None, reason="PySide6 is not installed in the artifact test environment")
 def test_stage75_aur_details_buttons_use_semantic_colors():
@@ -152,4 +178,3 @@ def test_stage75_aur_details_buttons_use_semantic_colors():
     installed_dialog.close()
     installed_dialog.deleteLater()
     app.processEvents()
-

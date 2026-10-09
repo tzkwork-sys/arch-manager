@@ -366,16 +366,15 @@ class AurPackageDetailsDialog(QDialog):
                 "Установка и удаление временно заблокированы, чтобы не показывать ложное состояние."
             )
         elif self.package.installed and self.package.update_available:
-            self.install_button.setText("Обновить через yay")
+            self.install_button.setText("Перейти к обновлениям")
             self.install_button.setEnabled(not self._busy)
             style_semantic_button(self.install_button, "update")
-            self.install_button.setToolTip("Обновить этот AUR-пакет в интерактивном терминале")
+            self.install_button.setToolTip("Открыть общий раздел обновлений Arch Manager")
             self.remove_button.setVisible(True)
             self.remove_button.setEnabled(not self._busy)
             self.remove_button.setToolTip("Удалить установленный AUR-пакет")
             self.action_note.setText(
-                "Доступна новая версия AUR. Обновление откроется в отдельном терминале через yay; "
-                "если системе сначала требуется полное официальное обновление, Arch Manager его заблокирует."
+                "Доступна новая версия AUR. Установить её можно в общем разделе «Обновления»."
             )
         elif self.package.installed:
             self.install_button.setText("Удалить через yay")
@@ -408,13 +407,13 @@ class AurPackageDetailsDialog(QDialog):
     def _package_action_requested(self) -> None:
         if self._busy or not self.package.local_state_known:
             return
+        if self.package.installed and self.package.update_available:
+            self.accept()
+            self.updates_requested.emit()
+            return
         self._generation += 1
         generation = self._generation
-        if self.package.installed and self.package.update_available:
-            self._pending_action = "update"
-            self._set_busy(True, "Проверяю AUR-обновление и состояние системы…")
-            future = self.update_planner.plan_async(self.package)
-        elif self.package.installed:
+        if self.package.installed:
             self._pending_action = "remove"
             self._set_busy(True, "Проверяю установленный AUR-пакет и состояние менеджера пакетов…")
             future = self.remove_planner.plan_async(self.package)

@@ -5,6 +5,8 @@ export PATH=/usr/bin:/bin
 YAY=/usr/bin/yay
 PACMAN=/usr/bin/pacman
 FLOCK=/usr/bin/flock
+SUDO=/usr/bin/sudo
+KEEPALIVE_PID=""
 ACTION=""
 PACKAGE=""
 STATUS_FILE=""
@@ -63,7 +65,37 @@ write_status() {
     printf '%s\t%s\n' "$state" "$detail" >"$STATUS_FILE"
 }
 
+start_sudo_keepalive() {
+    [[ -x "$SUDO" ]] || return 0
+    [[ -z "$KEEPALIVE_PID" ]] || return 0
+    # yay remains responsible for the first authentication, only when needed.
+    # Refresh an existing ticket during a long build and subsequent orphan
+    # cleanup. -n prevents this background worker from ever asking for a password.
+    (
+        sleep_pid=""
+        trap '[[ -z "$sleep_pid" ]] || kill "$sleep_pid" 2>/dev/null; exit 0' HUP INT TERM
+        while true; do
+            /usr/bin/sleep 45 &
+            sleep_pid=$!
+            wait "$sleep_pid" || exit 0
+            sleep_pid=""
+            "$SUDO" -n -v >/dev/null 2>&1 || true
+        done
+    ) &
+    KEEPALIVE_PID=$!
+}
+
+stop_sudo_keepalive() {
+    if [[ -n "$KEEPALIVE_PID" ]]; then
+        kill "$KEEPALIVE_PID" >/dev/null 2>&1 || true
+        wait "$KEEPALIVE_PID" 2>/dev/null || true
+        KEEPALIVE_PID=""
+    fi
+}
+
 cleanup() {
+    # Stop renewing privileges before the optional terminal-close prompt.
+    stop_sudo_keepalive
     if [[ "$PAUSE_ON_EXIT" == 1 && -t 0 ]]; then
         printf '\nНажмите Enter, чтобы закрыть терминал…'
         IFS= read -r _ || true
@@ -196,6 +228,7 @@ if [[ "$ACTION" == update-all ]]; then
     printf '%s\n' 'Системные пакеты из официальных репозиториев этой командой не обновляются.'
     printf '%s\n\n' 'Проверяйте вопросы yay, PKGBUILD/diff и подтверждения прямо в терминале.'
     write_status running "yay-update-all"
+    start_sudo_keepalive
     "$YAY" -Sua
     rc=$?
     if (( rc != 0 )); then
@@ -227,6 +260,7 @@ if [[ "$ACTION" == update ]]; then
     printf '\nПакет: %s%s\n' "$PACKAGE" "${before_version:+ ($before_version)}"
     printf '%s\n\n' 'Проверяйте вопросы yay, PKGBUILD/diff и подтверждения прямо в терминале.'
     write_status running "yay-update"
+    start_sudo_keepalive
     "$YAY" -S --aur -- "$PACKAGE"
     rc=$?
     if (( rc != 0 )); then
@@ -248,11 +282,13 @@ if [[ "$ACTION" == install ]]; then
     printf '%s\n' '============================================================'
     printf '\nПакет: %s\n' "$PACKAGE"
     printf '%s\n' 'Сборка выполняется от текущего пользователя.'
-    printf '%s\n' 'yay может запросить пароль sudo для установки зависимостей/готового пакета.'
+    printf '%s\n' 'yay запросит пароль sudo, если это требуется для установки зависимостей/готового пакета.'
+    printf '%s\n' 'Действующая авторизация поддерживается только на время этой операции.'
     printf '%s\n' 'Проверяйте вопросы yay, PKGBUILD/diff и подтверждения прямо в этом терминале.'
     printf '%s\n\n' 'Arch Manager не подтверждает вопросы автоматически и не получает ваш пароль.'
 
     write_status running "yay-install"
+    start_sudo_keepalive
     "$YAY" -S --aur -- "$PACKAGE"
     rc=$?
     if (( rc != 0 )); then
@@ -306,6 +342,7 @@ printf '%s\n' 'Ненужные пакеты, существовавшие до 
 printf '%s\n\n' 'Arch Manager не подтверждает удаление автоматически и не получает ваш пароль.'
 
 write_status running "yay-remove"
+start_sudo_keepalive
 "$YAY" -Rns -- "$PACKAGE"
 rc=$?
 if (( rc != 0 )); then

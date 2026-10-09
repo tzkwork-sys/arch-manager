@@ -70,7 +70,8 @@ def test_app_store_context_sidebar_contract():
 
     assert page.category_combo.isHidden()
     assert page.installed_button.isHidden()
-    assert page.updates_button.isHidden()
+    assert not hasattr(page, "updates_button")
+    assert not hasattr(page, "aur_update_all_button")
     assert ("office", "Офис") in page.sidebar_categories()
     assert ("games", "Игры") in page.sidebar_categories()
     assert categories_seen
@@ -103,8 +104,58 @@ def test_main_window_contains_contextual_application_sidebar_source_contract():
     assert 'appStoreSidebarTitle' not in source
     assert '"Все приложения", "catalog"' in source
     assert '"Установленные", "installed"' in source
-    assert '"Обновления", "updates"' in source
-    assert 'header = QListWidgetItem("КАТЕГОРИИ")' in source
+    assert '"Обновления", "updates"' not in source
+    assert '"Популярные", "popular"' not in source
+    assert '"КАТЕГОРИИ"' not in source
+
+
+@pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed")
+@pytest.mark.parametrize("background, foreground", [("#141618", "#eeeeee"), ("#ffffff", "#202020")])
+def test_sidebar_groups_system_before_catalog_and_preserves_selection(background, foreground):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QApplication, QFrame, QListWidget, QMainWindow
+    from src.gui.main_window import MainWindow
+
+    class SidebarWindow(MainWindow):
+        def __init__(self):
+            QMainWindow.__init__(self)
+            self.app_store_navigation = QListWidget(self)
+
+    app = QApplication.instance() or QApplication([])
+    window = SidebarWindow()
+    palette = window.app_store_navigation.palette()
+    palette.setColor(QPalette.ColorRole.Base, QColor(background))
+    palette.setColor(QPalette.ColorRole.Mid, QColor(background))
+    palette.setColor(QPalette.ColorRole.Text, QColor(foreground))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#35ace3"))
+    window.app_store_navigation.setPalette(palette)
+    categories = (("internet", "Интернет"), ("office", "Офис"), ("graphics", "Графика"))
+    window._set_app_store_categories(categories)
+    nav = window.app_store_navigation
+    assert [nav.item(row).text() for row in range(nav.count())] == [
+        "МОЯ СИСТЕМА", "Установленные", "Системные пакеты", "",
+        "КАТАЛОГ", "Все приложения", "Интернет", "Офис", "Графика",
+    ]
+    separator = nav.item(3)
+    assert separator.flags() == Qt.ItemFlag.NoItemFlags
+    line = nav.itemWidget(separator).findChild(QFrame, "appStoreSectionSeparator")
+    assert line is not None
+    assert line.height() == 1
+    assert separator.sizeHint().height() == 28
+    divider = QColor(line.styleSheet().split("background-color: ")[1].split(";")[0])
+    assert divider.isValid()
+    assert divider.name() == palette.color(QPalette.ColorRole.Highlight).lighter(125).name()
+    assert divider.name() == nav.item(4).foreground().color().name()
+    assert window._app_store_sidebar_state() == ("catalog", None)
+
+    nav.setCurrentRow(7)
+    window._set_app_store_categories(categories)
+    assert window._app_store_sidebar_state() == ("category", "office")
+    nav.setCurrentRow(1)
+    window._set_app_store_categories(categories)
+    assert window._app_store_sidebar_state() == ("installed", None)
+    window.deleteLater()
 
 
 @pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed")
@@ -145,3 +196,58 @@ def test_catalog_starts_with_search_filters_and_actions_without_duplicate_title(
     assert top_row.itemAt(3).layout() is page.header_actions
     assert page.header_actions.itemAt(0).widget() is page.reload_button
     assert page.layout().itemAt(1).widget() is page.checked_label
+    assert page.header_actions.count() == 1
+    page.deleteLater()
+
+
+@pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed")
+def test_old_updates_entry_requests_shared_page_without_changing_catalog():
+    from PySide6.QtWidgets import QApplication
+    from src.gui.app_store.page import AppStorePage
+
+    app = QApplication.instance() or QApplication([])
+    page = AppStorePage(service=FakeService())
+    requests = []
+    page.updates_requested.connect(lambda: requests.append(True))
+    page.ensure_loaded()
+    app.processEvents()
+    page.select_sidebar_entry("category", "office")
+    page.search_edit.setText("Writer")
+    page.select_sidebar_entry("updates")
+
+    assert requests == [True]
+    assert page._active_view() == "catalog"
+    assert page.sidebar_selection() == ("category", "office")
+    assert page.search_edit.text() == "Writer"
+    assert page.filtered_count == 1
+    page.deleteLater()
+
+
+@pytest.mark.skipif(not HAS_QT, reason="PySide6 is not installed")
+def test_shared_updates_page_selects_all_aur_updates_by_default():
+    from datetime import datetime
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+    from src.core.updates import UpdateDetails, UpdateItem, UpdateSourceDetails
+    from src.gui.updates_page import UpdatesPage
+
+    app = QApplication.instance() or QApplication([])
+    page = UpdatesPage()
+    page.apply_shared_details(UpdateDetails(
+        official=UpdateSourceDetails((UpdateItem("linux", "1", "2", "official"),), True),
+        aur=UpdateSourceDetails((
+            UpdateItem("demo-aur", "1", "2", "aur"),
+            UpdateItem("other-aur", "3", "4", "aur"),
+        ), True),
+        checked_at=datetime.now().astimezone(),
+    ))
+
+    assert page.table.rowCount() == 3
+    assert page.install_button.isEnabled()
+    assert page._selected_aur_packages() == ("demo-aur", "other-aur")
+    for row in range(page.table.rowCount()):
+        if page.table.item(row, 1).text() == "demo-aur":
+            page.table.item(row, 0).setCheckState(Qt.CheckState.Unchecked)
+            break
+    assert page._selected_aur_packages() == ("other-aur",)
+    page.deleteLater()

@@ -169,18 +169,16 @@ def test_stage5_shared_summary_is_derived_from_same_details():
     assert snapshot.summary.official.count == 2
 
 
-def test_stage5_store_has_installed_and_updates_views_but_no_partial_update_executor():
+def test_store_keeps_installed_view_and_routes_updates_to_shared_page():
     page = (ROOT / "src/gui/app_store/page.py").read_text(encoding="utf-8")
     mapper = (ROOT / "src/app_store/update_mapping.py").read_text(encoding="utf-8")
     main = (ROOT / "src/gui/main_window.py").read_text(encoding="utf-8")
 
     assert 'setText("Установленные")' in page
-    assert 'setText("Обновления")' in page
+    assert 'setText("Обновления")' not in page
     assert 'QPushButton("Перейти к обновлениям")' not in page
-    assert 'QPushButton("Перейти к системным обновлениям")' in page
-    assert '"Доступны системные обновления"' in page
-    assert '"Также доступны системные обновления"' in page
-    assert "ApplicationUpdateMapper.map_updates" in page
+    assert "aur_update_all_button" not in page
+    assert "ApplicationUpdateMapper.synchronize" in page
     assert "updates_requested.emit" in page
     assert "pacman" not in page
     assert "pkexec" not in page
@@ -208,12 +206,10 @@ def test_stage5_pages_share_update_state_and_resync_after_mutations():
     assert "update_state_service.refresh(force=False)" in provider
 
 
-def test_stage5_system_updates_prompt_is_contextual_and_uses_shared_official_state():
+def test_store_has_no_duplicate_updates_view_or_prompts():
     page = (ROOT / "src/gui/app_store/page.py").read_text(encoding="utf-8")
 
-    assert "def _system_update_count" in page
-    assert 'getattr(official, "items", ())' in page
-    assert 'self._active_view() == "updates" and system_count > 0' in page
-    assert 'has_app_updates=app_update_count > 0' in page
-    assert 'button.clicked.connect(self.updates_requested.emit)' in page
-    assert 'self.open_updates_button' not in page
+    assert "def _build_system_updates_prompt" not in page
+    assert "appStoreUpdatesFilter" not in page
+    assert "appStoreOfficialUpdatePolicyNote" not in page
+    assert "dialog.updates_requested.connect(self.updates_requested.emit)" in page

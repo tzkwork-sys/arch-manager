@@ -104,7 +104,7 @@ def test_stage5_runner_keeps_package_manager_interactive_selective_and_orders_st
     assert "eval " not in source
     assert "bash -c" not in source
     assert "AUR-пакеты после ошибки официального этапа не устанавливаются." in source
-    assert '"$SUDO" -k' in source
+    assert '"$SUDO" -k' not in source
     assert '"$SUDO" -v' in source
     assert "-S -p ''" not in source
     assert "AUTH_MARKER" not in source
