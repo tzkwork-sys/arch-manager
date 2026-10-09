@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from concurrent.futures import Executor, Future
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -11,7 +11,9 @@ from .models import Application
 from .package_state import PacmanPackageStateProvider, PackageState
 
 
-_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="arch-manager-app-store")
+from .background import create_background_executor
+
+_BACKGROUND_EXECUTOR = create_background_executor(max_workers=1, thread_name_prefix="arch-manager-app-store")
 
 
 @dataclass(frozen=True, slots=True)

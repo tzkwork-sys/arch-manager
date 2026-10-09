@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import __version__
 from .gui.main_window import MainWindow
+from .gui.lifecycle import shutdown_application_widgets
 
 APP_NAME = "Arch Manager"
 ORG_NAME = "ArchManager"
@@ -99,4 +100,7 @@ def main() -> int:
     logging.getLogger(__name__).info("Starting Arch Manager %s", __version__)
     window = MainWindow()
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        shutdown_application_widgets()

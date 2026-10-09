@@ -105,6 +105,42 @@ def test_kernel_taint_512_is_explained_as_warning_trace(monkeypatch):
     assert any("bit 9 (512)" in line for line in check.details)
 
 
+def test_libinput_client_bug_is_not_a_kernel_bug(monkeypatch):
+    text = "kwin_wayland[1027]: Libinput: event3 - Logitech: client bug: event processing lagging behind by 38ms"
+    monkeypatch.setattr(diagnostics, "run_command", lambda args, **kwargs: _result(args, out=text))
+    journal, _ = diagnostics.check_boot_journal()
+    assert journal.status == "warning"
+    assert "Критических ошибок нет" in journal.summary
+    assert any("client bug:" in detail for detail in journal.details)
+
+
+def test_real_kernel_bug_stays_critical(monkeypatch):
+    for text in ("host kernel: BUG: unable to handle page fault", "host kernel: Oops: 0000", "kernel: I/O error, dev nvme0n1"):
+        monkeypatch.setattr(diagnostics, "run_command", lambda args, **kwargs: _result(args, out=text))
+        assert diagnostics.check_boot_journal()[0].status == "critical"
+
+
+def test_failed_desktop_app_does_not_change_system_manager_nvpcr_assessment():
+    checks = diagnostics.build_service_checks(
+        systemd_state="degraded", critical_system=0, advisory_system=4,
+        failed_user=1, critical_names=(), advisory_names=("systemd-pcrproduct.service",),
+        user_names=("app-arch-manager.service",), known_nvpcr_regression=True,
+    )
+    by_id = {check.id: check for check in checks}
+    assert by_id["systemd_state"].status == "info"
+    assert by_id["failed_user_services"].status == "critical"
+
+
+def test_unknown_or_real_system_failures_are_not_excused_as_nvpcr():
+    for critical_count in (None, 1):
+        checks = diagnostics.build_service_checks(
+            systemd_state="degraded", critical_system=critical_count, advisory_system=4,
+            failed_user=0, critical_names=("important.service",), advisory_names=(),
+            user_names=(), known_nvpcr_regression=True,
+        )
+        assert checks[0].status == "critical"
+
+
 def test_secure_boot_and_tpm_labels_are_human_readable(monkeypatch):
     monkeypatch.setattr(diagnostics, "command_exists", lambda name: True)
 

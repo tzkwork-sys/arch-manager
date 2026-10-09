@@ -445,7 +445,7 @@ def check_kernel_taint() -> DiagnosticCheck:
 
 _CRITICAL_JOURNAL_RE = re.compile(
     r"(?:BTRFS.*(?:error|corrupt|critical)|I/O error|blk_update_request|nvme.*(?:critical|I/O error)|"
-    r"EXT4-fs error|XFS.*(?:corrupt|error)|kernel panic|\bOops:|\bBUG:|machine check|\bMCE\b)",
+    r"EXT4-fs error|XFS.*(?:corrupt|error)|kernel panic|\bkernel(?:\[\d+\])?:.*(?:\bOops:|\bBUG:)|machine check|\bMCE\b)",
     re.IGNORECASE,
 )
 _OOM_RE = re.compile(r"(?:out of memory|oom-kill|killed process)", re.IGNORECASE)
@@ -699,7 +699,7 @@ def build_service_checks(
         checks.append(DiagnosticCheck("systemd_state", "services", "Состояние systemd", "unknown", "Не удалось определить"))
     elif normalized == "running":
         checks.append(DiagnosticCheck("systemd_state", "services", "Состояние systemd", "ok", "running"))
-    elif normalized == "degraded" and (critical_system or 0) == 0 and (failed_user or 0) == 0:
+    elif normalized == "degraded" and critical_system == 0 and advisory_system > 0:
         if known_nvpcr_regression:
             checks.append(
                 DiagnosticCheck(

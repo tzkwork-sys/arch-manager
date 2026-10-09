@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from dataclasses import dataclass
 import re
 import threading
@@ -14,7 +14,9 @@ from .models import Application
 from .package_state import OFFICIAL_REPOSITORIES
 
 
-_SYSTEM_PACKAGE_EXECUTOR = ThreadPoolExecutor(
+from .background import create_background_executor
+
+_SYSTEM_PACKAGE_EXECUTOR = create_background_executor(
     max_workers=2,
     thread_name_prefix="arch-manager-system-packages",
 )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from concurrent.futures import Executor, Future
 from collections.abc import Callable, Iterable
 
 from src.core.command import CommandResult, run_command
@@ -15,7 +15,9 @@ from src.app_store.search import aur_search_queries, search_candidate_rank
 from .versioning import update_available
 
 
-_AUR_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="arch-manager-aur")
+from ..background import create_background_executor
+
+_AUR_EXECUTOR = create_background_executor(max_workers=3, thread_name_prefix="arch-manager-aur")
 
 
 class AurService:

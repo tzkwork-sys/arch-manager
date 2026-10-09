@@ -216,7 +216,7 @@ class AppStorePage(NavigablePage):
             self._aur_terminal.completed.connect(self._aur_update_all_completed)
             self._aur_terminal.failed.connect(self._aur_update_all_terminal_failed)
 
-        layout = self.create_page_layout("Приложения", spacing=10)
+        layout = self.create_page_layout(None, spacing=10)
 
         self.reload_button = QPushButton("Обновить каталог")
         self.reload_button.setObjectName("appStoreReloadCatalogButton")
@@ -233,7 +233,6 @@ class AppStorePage(NavigablePage):
         self.add_header_action(self.aur_update_all_button)
 
         self.checked_label = self.make_checked_label()
-        layout.addWidget(self.checked_label)
 
         filters = QHBoxLayout()
         filters.setSpacing(10)
@@ -299,7 +298,9 @@ class AppStorePage(NavigablePage):
         )
         self.updates_button.setVisible(False)
 
+        filters.addLayout(self.header_actions)
         layout.addLayout(filters)
+        layout.addWidget(self.checked_label)
 
         status_row = QHBoxLayout()
         status_row.setContentsMargins(0, 0, 0, 0)

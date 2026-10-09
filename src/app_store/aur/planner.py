@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from concurrent.futures import Executor, Future
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -28,7 +28,9 @@ from .versioning import update_available
 
 PACMAN_LOCK = Path("/var/lib/pacman/db.lck")
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9@._+:-]+$")
-_AUR_PLAN_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="arch-manager-aur-plan")
+from ..background import create_background_executor
+
+_AUR_PLAN_EXECUTOR = create_background_executor(max_workers=2, thread_name_prefix="arch-manager-aur-plan")
 
 
 def validate_aur_package_name(value: str) -> str:

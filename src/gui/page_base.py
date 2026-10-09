@@ -24,7 +24,7 @@ class NavigablePage(QWidget):
 
     def create_page_layout(
         self,
-        title: str,
+        title: str | None,
         description: str | None = None,
         *,
         spacing: int = PAGE_SPACING,
@@ -33,24 +33,23 @@ class NavigablePage(QWidget):
         layout.setContentsMargins(32, 18, 32, 24)
         layout.setSpacing(max(PAGE_SPACING, spacing))
 
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(10)
-
-        heading = QLabel(title)
-        heading.setObjectName("pageTitle")
-        font = heading.font()
-        font.setPointSize(font.pointSize() + 7)
-        font.setBold(True)
-        heading.setFont(font)
-        title_row.addWidget(heading)
-        title_row.addStretch(1)
-
         self.header_actions = QHBoxLayout()
         self.header_actions.setContentsMargins(0, 0, 0, 0)
         self.header_actions.setSpacing(8)
-        title_row.addLayout(self.header_actions)
-        layout.addLayout(title_row)
+        if title is not None:
+            title_row = QHBoxLayout()
+            title_row.setContentsMargins(0, 0, 0, 0)
+            title_row.setSpacing(10)
+            heading = QLabel(title)
+            heading.setObjectName("pageTitle")
+            font = heading.font()
+            font.setPointSize(font.pointSize() + 7)
+            font.setBold(True)
+            heading.setFont(font)
+            title_row.addWidget(heading)
+            title_row.addStretch(1)
+            title_row.addLayout(self.header_actions)
+            layout.addLayout(title_row)
 
         if description:
             text = QLabel(description)

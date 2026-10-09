@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 import threading
 from collections.abc import Callable
 
@@ -47,7 +47,9 @@ class PackageActionService:
         self.executor = executor
         self.launcher = launcher
         self.coordinator = coordinator or get_package_transaction_coordinator()
-        self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="arch-manager-app-actions")
+        from .background import create_background_executor
+
+        self._pool = create_background_executor(max_workers=3, thread_name_prefix="arch-manager-app-actions")
         self._state_lock = threading.Lock()
         self._transaction_active = False
 

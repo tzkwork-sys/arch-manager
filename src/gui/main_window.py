@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QListWidgetItem,
     QMainWindow,
+    QMessageBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -26,6 +27,7 @@ from .recovery_center_page import RecoveryCenterPage
 from .settings_page import SettingsPage
 from .system_page import SystemPage
 from .updates_page import UpdatesPage
+from .lifecycle import package_operation_running
 from .theme import PAGE_STYLESHEET
 
 NAV_ITEMS = [
@@ -118,13 +120,14 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(10, 14, 10, 12)
         sidebar_layout.setSpacing(10)
 
-        brand = QLabel("Arch Manager")
-        brand_font = brand.font()
+        self.sidebar_brand = QLabel("Arch Manager")
+        self.sidebar_brand.setWordWrap(True)
+        brand_font = self.sidebar_brand.font()
         brand_font.setPointSize(brand_font.pointSize() + 3)
         brand_font.setBold(True)
-        brand.setFont(brand_font)
+        self.sidebar_brand.setFont(brand_font)
 
-        sidebar_layout.addWidget(brand)
+        sidebar_layout.addWidget(self.sidebar_brand)
         sidebar_layout.addSpacing(6)
 
         self.sidebar_stack = QStackedWidget()
@@ -156,17 +159,10 @@ class MainWindow(QMainWindow):
 
         back_button = QPushButton("←  Arch Manager")
         back_button.setObjectName("appStoreSidebarBack")
+        back_button.setToolTip("Вернуться к обзору Arch Manager")
         back_button.setMinimumHeight(38)
         back_button.clicked.connect(lambda: self.set_page(0))
         layout.addWidget(back_button)
-
-        title = QLabel("Приложения")
-        title.setObjectName("appStoreSidebarTitle")
-        title_font = title.font()
-        title_font.setPointSize(title_font.pointSize() + 2)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        layout.addWidget(title)
 
         self.app_store_navigation = QListWidget()
         self.app_store_navigation.setObjectName("appStoreNavigation")
@@ -352,6 +348,7 @@ class MainWindow(QMainWindow):
         if self.navigation.currentRow() != index:
             self.navigation.setCurrentRow(index)
         self.stack.setCurrentIndex(index)
+        self.sidebar_brand.setText("Диспетчер приложений" if index == 5 else "Arch Manager")
         if hasattr(self, "sidebar_stack"):
             self.sidebar_stack.setCurrentIndex(1 if index == 5 else 0)
             if index == 5:
@@ -380,6 +377,13 @@ class MainWindow(QMainWindow):
         self.set_page(0)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt API name)
+        if package_operation_running():
+            event.ignore()
+            QMessageBox.information(
+                self, "Операция ещё выполняется",
+                "Дождитесь завершения установки, удаления или обновления пакетов перед закрытием Arch Manager.",
+            )
+            return
         self.settings.setValue("window/geometry", self.saveGeometry())
         self.settings.setValue("window/state", self.saveState())
         self.settings.sync()

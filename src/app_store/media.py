@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from concurrent.futures import Executor, Future
 from dataclasses import dataclass
 import hashlib
 import os
@@ -13,7 +13,9 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 
-_MEDIA_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="arch-manager-media")
+from .background import create_background_executor
+
+_MEDIA_EXECUTOR = create_background_executor(max_workers=4, thread_name_prefix="arch-manager-media")
 MEDIA_CACHE_SCHEMA_VERSION = 1
 DEFAULT_TIMEOUT_SECONDS = 8.0
 DEFAULT_MAX_BYTES = 12 * 1024 * 1024

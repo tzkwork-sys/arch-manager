@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from concurrent.futures import Executor, Future
 from dataclasses import dataclass, replace
 import json
 import os
@@ -22,7 +22,9 @@ DEFAULT_PAGE_LIMIT = 10_000
 DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 USER_AGENT = "ArchManager-AppStore-Popularity/1.0"
 
-_POPULARITY_EXECUTOR = ThreadPoolExecutor(
+from .background import create_background_executor
+
+_POPULARITY_EXECUTOR = create_background_executor(
     max_workers=1,
     thread_name_prefix="arch-manager-popularity",
 )
