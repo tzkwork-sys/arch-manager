@@ -23,3 +23,21 @@ Arch Manager continues to use pacman for Official and yay for AUR. Flatpak is a 
 - KDE/Flatpak must have a functioning system Polkit agent for system-wide install/remove/update. If authentication fails, the operation reports the error.
 - This patch does **not** configure or install Flatpak or Flathub automatically, change pacman/yay helpers, or push commits.
 - After applying, check the Installed/Flatpak filter with `io.github.mhogomchungu.media-downloader`, then try a search and a safe GUI install/remove test. Recheck the Updates view and ensure Official/AUR counts remain correct.
+
+## Rich AppStream details (Flathub)
+
+The existing Official application details UI is reused for Flatpak: a scrollable
+window, reusable screenshot tiles and fullscreen screenshot viewer, HTML-safe
+long descriptions, license/publisher details, and verified external links. Flatpak
+operations continue through their own Flatpak QProcess code, **never** pacman.
+
+When a Flatpak details window is *shown*, the app ID is queried from
+`https://flathub.org/api/v2/appstream/<app-id>`. The catalog and card search do
+not request AppStream details. The response is bounded to 512 KiB, validated to
+match the requested app ID, sanitized and cached for 24 hours (up to 120
+entries). A stale cache can be reused if offline. Screenshot and icon URLs must
+point to HTTPS Flathub-hosted media; screenshot fetching reuses the official
+MediaCache with its limits and 96 MiB disk cache. Only up to eight screenshots
+are requested, and only after the details view opens. Missing optional fields or
+network failures leave the original Flatpak metadata and install/remove actions
+available. No new package dependency, Polkit rule or system helper is required.

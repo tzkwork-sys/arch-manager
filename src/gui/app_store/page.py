@@ -1710,7 +1710,7 @@ class AppStorePage(NavigablePage):
     @Slot(object)
     def _open_application_details(self, item: object) -> None:
         if isinstance(item, Application) and (item.metadata_source or "").startswith("flatpak:"):
-            dialog = FlatpakPackageDetailsDialog(item, self)
+            dialog = FlatpakPackageDetailsDialog(item, self, media_cache=self._media_cache)
             dialog.exec()
             if dialog.package_state_changed:
                 self._refresh_last_action_label()
