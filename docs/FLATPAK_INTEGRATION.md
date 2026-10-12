@@ -10,6 +10,13 @@ Arch Manager continues to use pacman for Official and yay for AUR. Flatpak is a 
 - Shared update discovery combines Official, AUR, Flatpak and displays separate source filters. Users can select individual Flatpak updates. When mixed updates are selected, the existing full Arch upgrade runs first; Flatpak updates run only after its successful completion. Flatpak-only selection updates without invoking pacman.
 - User and system installation scopes are kept separate for removal and updates.
 
+## Card metadata and trustworthy installed counts
+
+- Cards show a short description, repository, available/installed version and installation scope; their tooltip shows the complete Flatpak application ID.
+- For icons the store checks exported local hicolor icons and Flatpak's locally cached Flathub AppStream icons. There are no invented images and no remote image requests from the card renderer. If no matching icon exists it falls back to the desktop theme.
+- The Installed/Flatpak view checks both `flatpak list --app --system` and `flatpak list --app --user`. Only a successful read from *both* can justify a zero count. A failed read is shown separately, not misreported as zero.
+- Check the actual installation state independently with `flatpak list --app --columns=application,installation,version`.
+
 ## Notes / constraints
 
 - Flatpak search returns the CLI's basic metadata; Flathub category and screenshot metadata are not available through that interface and are not fabricated. Installed application desktop file metadata is not rewritten.

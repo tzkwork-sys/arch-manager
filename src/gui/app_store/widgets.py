@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLay
 
 from src.app_store.categories import CATEGORY_LABELS_RU
 from src.app_store.models import Application
+from src.app_store.flatpak import flatpak_card_tooltip
 
 from ..theme import CARD_RADIUS, STATUS_COLORS, muted_text
 
@@ -207,12 +208,15 @@ class ApplicationCard(QFrame):
         self.setObjectName("appStoreCard")
         self.setMinimumWidth(CARD_MIN_WIDTH)
         self.setMaximumWidth(CARD_MAX_WIDTH)
-        self.setFixedHeight(CARD_HEIGHT)
+        is_flatpak = (application.metadata_source or "").startswith("flatpak:")
+        self.setFixedHeight(CARD_HEIGHT + (18 if is_flatpak else 0))
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         tooltip_parts = [application.name]
         if application.summary:
             tooltip_parts.append(application.summary)
+        if is_flatpak:
+            tooltip_parts.extend(flatpak_card_tooltip(application))
         self.setToolTip("\n\n".join(tooltip_parts))
 
         root = QHBoxLayout(self)
@@ -287,7 +291,25 @@ class ApplicationCard(QFrame):
         self.category_label = _CompactTextLabel(category_text, max_lines=1)
         self.category_label.setObjectName("appStoreCategoryLabel")
         muted_text(self.category_label)
+        if is_flatpak:
+            font = self.category_label.font()
+            font.setBold(True)
+            self.category_label.setFont(font)
         body.addWidget(self.category_label)
+
+        # AUR/pacman cards retain their existing layout. Flatpak gains a
+        # separate version line, rather than showing only "Flatpak · flathub".
+        if is_flatpak:
+            version = application.installed_version or application.available_version or "не указана"
+            scope = application.metadata_source.removeprefix("flatpak:")
+            version_label = _CompactTextLabel(
+                f"Версия: {version}" + (f" · {scope}" if application.installed else ""),
+                max_lines=1,
+            )
+            version_label.setObjectName("appStoreFlatpakVersion")
+            version_label.setToolTip(f"Версия: {version}")
+            muted_text(version_label)
+            body.addWidget(version_label)
 
         if not application.installed_state_known:
             status_text = "⚠ Статус недоступен"
@@ -297,6 +319,8 @@ class ApplicationCard(QFrame):
             status_text = f"↑ {old_version} → {new_version}"
         elif application.installed:
             status_text = "✓ Установлено"
+        elif is_flatpak:
+            status_text = "Доступно во Flathub"
         else:
             status_text = ""
 

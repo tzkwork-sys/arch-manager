@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from concurrent.futures import Future
 from dataclasses import dataclass
+import os
+from pathlib import Path
+import platform
 import re
 from typing import Callable
 
@@ -48,6 +51,33 @@ def _rows(output: str, length: int) -> tuple[tuple[str, ...], ...]:
     return tuple(rows)
 
 
+def find_flatpak_icon(app_id: str, *, scope: str = "system", origin: str = "flathub") -> str | None:
+    """Find a locally cached Flatpak icon without a network fetch or shell.
+
+    Exported icons cover installed applications; AppStream icons cached by
+    ``flatpak search`` cover many not-yet-installed Flathub applications.
+    """
+    if not _ID_RE.fullmatch(app_id) or scope not in _SCOPES:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", origin):
+        return None
+    user_data = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local/share")) / "flatpak"
+    system_data = Path("/var/lib/flatpak")
+    roots = (user_data, system_data) if scope == "user" else (system_data, user_data)
+    arch = platform.machine() or "x86_64"
+    candidates: list[Path] = []
+    for root in roots:
+        for size, extension in (("128x128", ".png"), ("256x256", ".png"),
+                                ("64x64", ".png"), ("scalable", ".svg")):
+            candidates.append(root / "exports/share/icons/hicolor" / size / "apps" / f"{app_id}{extension}")
+        for size in ("128x128", "64x64"):
+            candidates.append(root / "appstream" / origin / arch / "active/icons" / size / f"{app_id}.png")
+    for path in candidates:
+        if path.is_file():
+            return str(path)
+    return None
+
+
 def _application(app_id: str, name: str, *, scope: str, version: str = "", summary: str = "", installed: bool = False, origin: str = "flathub") -> Application:
     return Application(
         app_id=f"flatpak:{scope}:{app_id}",
@@ -55,13 +85,30 @@ def _application(app_id: str, name: str, *, scope: str, version: str = "", summa
         name=name or app_id,
         package_names=(app_id,),
         summary=summary or f"Flatpak · {origin}",
-        icon=app_id,
+        icon=find_flatpak_icon(app_id, scope=scope, origin=origin) or app_id,
         repository=f"Flatpak · {origin}",
         available_version=version or None,
         installed_version=(version or None) if installed else None,
         installed=installed,
         metadata_source=f"flatpak:{scope}",
         desktop_entry=f"{app_id}.desktop" if installed else None,
+    )
+
+
+def flatpak_card_tooltip(application: Application) -> tuple[str, ...]:
+    """Provide technical Flatpak metadata outside the shared catalog-card widget.
+
+    The original store widget has a deliberate no-technical-package-fields
+    contract. Only Flatpak cards request these details for their tooltip.
+    """
+    scope = (application.metadata_source or "").removeprefix("flatpak:")
+    scope_label = "общесистемная" if scope == "system" else "пользовательская"
+    installation_label = "Установка" if application.installed else "Предлагаемая установка"
+    return (
+        f"Flatpak ID: {application.package_name}",
+        f"Источник: {application.repository or 'Flatpak'}",
+        f"Версия: {application.installed_version or application.available_version or 'не указана'}",
+        f"{installation_label}: {scope_label}",
     )
 
 
@@ -85,14 +132,18 @@ class FlatpakService:
         errors = []
         for scope in _SCOPES:
             try:
-                output = self._read(["flatpak", "list", "--app", f"--{scope}", "--columns=application:f,name:f,version:f,branch:f,origin:f"])
+                output = self._read(["flatpak", "list", "--app", f"--{scope}", "--columns=application:f,name:f,version:f,branch:f,origin:f,description:f"])
             except FlatpakError as exc:
-                errors.append(str(exc))
+                errors.append(f"{scope}: {exc}")
                 continue
-            for app_id, name, version, _branch, origin, *_ in _rows(output, 5):
-                apps.append(_application(app_id, name, scope=scope, version=version, installed=True, origin=origin))
-        if len(errors) == len(_SCOPES):
-            raise FlatpakError("; ".join(errors))
+            for columns in _rows(output, 5):
+                app_id, name, version, _branch, origin = columns[:5]
+                summary = columns[5] if len(columns) > 5 else ""
+                apps.append(_application(app_id, name, scope=scope, version=version,
+                                         summary=summary, installed=True, origin=origin))
+        # A partial read must never be shown as a verified zero-install state.
+        if errors:
+            raise FlatpakError("Не удалось полностью проверить установки Flatpak: " + "; ".join(errors))
         return tuple(apps)
 
     def installed_async(self) -> Future[tuple[Application, ...]]:

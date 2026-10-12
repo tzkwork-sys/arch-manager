@@ -155,6 +155,8 @@ class AppStorePage(NavigablePage):
         self._flatpak_search_generation = 0
         self._flatpak_error: Exception | None = None
         self._flatpak_search_error: Exception | None = None
+        self._flatpak_installed_loading = False
+        self._flatpak_search_loading = False
         self._index = ApplicationIndex()
         self._local_index = ApplicationIndex()
         self._local_reader = LocalInstalledApplicationReader()
@@ -1482,10 +1484,16 @@ class AppStorePage(NavigablePage):
             return "Локальных приложений по этому запросу не найдено."
         if source == "flatpak":
             if self._flatpak_error:
-                return f"Flatpak недоступен: {self._flatpak_error}"
+                return f"Не удалось проверить установки Flatpak: {self._flatpak_error}"
+            if self._flatpak_installed_loading:
+                return "Проверяю установленные приложения Flatpak…"
+            if len(query) < 2:
+                return "Введите минимум 2 символа для поиска во Flathub."
             if self._flatpak_search_error:
                 return f"Поиск Flathub недоступен: {self._flatpak_search_error}"
-            return "Введите минимум 2 символа для поиска во Flathub."
+            if self._flatpak_search_loading or self._flatpak_search_timer.isActive():
+                return "Ищу приложения во Flathub…"
+            return "Во Flathub по этому запросу ничего не найдено."
         if source == "aur":
             if len(query) < 2:
                 return "Введите минимум 2 символа для поиска в AUR."
@@ -1594,7 +1602,11 @@ class AppStorePage(NavigablePage):
                 local=local_installed,
                 flatpak=flatpak_installed,
             )
-            if source in {"all", "aur", "local"} and self._aur_installed_loading and not self._filtered:
+            if source == "flatpak" and self._flatpak_installed_loading and not self._filtered:
+                self.empty_text.setText("Проверяю установленные приложения Flatpak (system и user)…")
+            elif source == "flatpak" and self._flatpak_error is not None and not self._filtered:
+                self.empty_text.setText(f"Не удалось проверить Flatpak: {self._flatpak_error}")
+            elif source in {"all", "aur", "local"} and self._aur_installed_loading and not self._filtered:
                 self.empty_text.setText("Загружаю список установленных приложений…")
             elif source in {"all", "aur", "local"} and self._aur_installed_error is not None and not self._filtered:
                 self.empty_text.setText("Не удалось получить список сторонних установленных приложений.")
@@ -1618,7 +1630,12 @@ class AppStorePage(NavigablePage):
         self._update_popularity_status()
         self._reset_cards()
         total = len(self._filtered)
-        self.count_label.setText(self._count_text(total))
+        if view == "installed" and source == "flatpak" and self._flatpak_installed_loading:
+            self.count_label.setText("Проверка Flatpak…")
+        elif view == "installed" and source == "flatpak" and self._flatpak_error is not None:
+            self.count_label.setText("Flatpak: проверка не удалась")
+        else:
+            self.count_label.setText(self._count_text(total))
         if total == 0:
             self._show_state(self.STATE_EMPTY)
             return
@@ -1772,6 +1789,11 @@ class AppStorePage(NavigablePage):
             return
         self._flatpak_installed_generation += 1
         generation = self._flatpak_installed_generation
+        self._flatpak_installed_loading = True
+        self._flatpak_error = None
+        self._flatpak_installed_results = ()
+        if self._loaded:
+            self._apply_filters()
         future = self._flatpak_service.installed_async()
         future.add_done_callback(lambda f, g=generation: self._flatpak_installed_finished(f, g))
 
@@ -1787,6 +1809,7 @@ class AppStorePage(NavigablePage):
     def _flatpak_installed_loaded(self, items: object, generation: int) -> None:
         if generation != self._flatpak_installed_generation:
             return
+        self._flatpak_installed_loading = False
         self._flatpak_error = None
         self._flatpak_installed_results = tuple(items)
         if self._loaded:
@@ -1796,6 +1819,7 @@ class AppStorePage(NavigablePage):
     def _flatpak_installed_failed(self, error: object, generation: int) -> None:
         if generation != self._flatpak_installed_generation:
             return
+        self._flatpak_installed_loading = False
         self._flatpak_error = error if isinstance(error, Exception) else RuntimeError(str(error))
         LOGGER.warning("Unable to list Flatpak applications: %s", error)
         if self._loaded:
@@ -1807,6 +1831,7 @@ class AppStorePage(NavigablePage):
         self._flatpak_search_query = ""
         self._flatpak_search_results = ()
         self._flatpak_search_error = None
+        self._flatpak_search_loading = False
         if (self._flatpak_service is None or not self._loaded
                 or self._active_view() != "catalog"
                 or self._selected_source() not in {"all", "flatpak"}
@@ -1820,6 +1845,7 @@ class AppStorePage(NavigablePage):
             return
         query = self.search_edit.text().strip()
         generation = self._flatpak_search_generation
+        self._flatpak_search_loading = True
         future = self._flatpak_service.search_async(query)
         future.add_done_callback(lambda f, q=query, g=generation: self._flatpak_search_finished(f, q, g))
 
@@ -1835,6 +1861,7 @@ class AppStorePage(NavigablePage):
     def _flatpak_search_loaded(self, items: object, query: str, generation: int) -> None:
         if generation != self._flatpak_search_generation or query != self.search_edit.text().strip():
             return
+        self._flatpak_search_loading = False
         self._flatpak_search_error = None
         self._flatpak_search_query = query
         self._flatpak_search_results = tuple(items)
@@ -1844,6 +1871,7 @@ class AppStorePage(NavigablePage):
     def _flatpak_search_failed(self, error: object, query: str, generation: int) -> None:
         if generation != self._flatpak_search_generation:
             return
+        self._flatpak_search_loading = False
         self._flatpak_search_error = error if isinstance(error, Exception) else RuntimeError(str(error))
         self._flatpak_search_query = query
         self._flatpak_search_results = ()
@@ -1937,6 +1965,8 @@ class AppStorePage(NavigablePage):
             self._aur_installed_loading,
             self._popularity_loading,
             self._system_package_loading,
+            self._flatpak_installed_loading,
+            self._flatpak_search_loading,
             queued_aur,
             queued_system,
             queued_flatpak,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import subprocess
 
-from PySide6.QtCore import QObject, QProcess, Signal, Slot, Qt
+from PySide6.QtCore import QObject, QProcess, Signal, Slot, Qt, QSize
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
 
 from src.app_store.flatpak import FlatpakAction, FlatpakService
@@ -11,6 +11,7 @@ from src.app_store.models import Application
 from src.app_store.package_coordinator import get_package_transaction_coordinator
 from src.core.activity_log import append_activity
 from src.core.update_state import get_update_state_service
+from src.gui.app_store.widgets import _application_icon
 
 
 class FlatpakOperationProcess(QObject):
@@ -115,12 +116,34 @@ class FlatpakPackageDetailsDialog(QDialog):
         font.setBold(True)
         heading.setFont(font)
         heading.setWordWrap(True)
-        root.addWidget(heading)
+        header = QHBoxLayout()
+        icon_label = QLabel()
+        icon_label.setFixedSize(64, 64)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon = _application_icon(application)
+        pixmap = icon.pixmap(QSize(56, 56))
+        if not pixmap.isNull():
+            icon_label.setPixmap(pixmap)
+        else:
+            icon_label.setText("▦")
+        header.addWidget(icon_label)
+        header.addWidget(heading, 1)
+        root.addLayout(header)
         description = QLabel(application.summary or "Приложение из Flathub")
         description.setWordWrap(True)
         root.addWidget(description)
         scope = application.metadata_source.removeprefix("flatpak:")
-        root.addWidget(QLabel(f"Источник: {application.repository or 'Flatpak'}\nID: {application.package_name}\nУстановка: {scope}\nВерсия: {application.installed_version or application.available_version or '—'}"))
+        scope_label = "общесистемная" if scope == "system" else "пользовательская"
+        scope_text = "Установка" if application.installed else "Предлагаемая установка"
+        properties = QLabel(
+            f"Источник: {application.repository or 'Flatpak'}\n"
+            f"Flatpak ID: {application.package_name}\n"
+            f"{scope_text}: {scope_label}\n"
+            f"Версия: {application.installed_version or application.available_version or '—'}"
+        )
+        properties.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        properties.setWordWrap(True)
+        root.addWidget(properties)
         self.status = QLabel("Установлено" if application.installed else "Не установлено")
         root.addWidget(self.status)
         buttons = QHBoxLayout()
