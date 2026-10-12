@@ -16,6 +16,7 @@ def merge_store_results(
     *,
     source: str,
     local: Iterable[Application] = (),
+    flatpak: Iterable[Application] = (),
 ) -> tuple[StoreSearchResult, ...]:
     """Merge source-specific results only at the GUI presentation boundary.
 
@@ -26,16 +27,19 @@ def merge_store_results(
     official_items = tuple(official)
     aur_items = tuple(aur)
     local_items = tuple(local)
+    flatpak_items = tuple(flatpak)
     if source == "official":
         return official_items
     if source == "aur":
         return aur_items
     if source == "local":
         return local_items
+    if source == "flatpak":
+        return flatpak_items
     if source != "all":
         raise ValueError(f"unsupported application source: {source}")
 
-    combined: list[StoreSearchResult] = [*official_items, *aur_items, *local_items]
+    combined: list[StoreSearchResult] = [*official_items, *aur_items, *flatpak_items, *local_items]
     combined.sort(
         key=lambda item: (
             item.name.casefold(),

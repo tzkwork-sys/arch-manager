@@ -27,6 +27,8 @@ from src.app_store.aur.service import AurService
 from src.app_store.catalog import AppCatalogService, CatalogLoadResult
 from src.app_store.categories import CATEGORY_LABELS_RU
 from src.app_store.installed import InstalledApplications
+from src.app_store.flatpak import FlatpakService
+from src.app_store.search import search_matches
 from src.app_store.integration import (
     current_update_details,
     last_app_store_activity,
@@ -54,6 +56,7 @@ from .aur.integration import (
 )
 from .aur.widgets import AurPackageCard
 from .details import ApplicationDetailsDialog
+from .flatpak_ui import FlatpakPackageDetailsDialog
 from .widgets import ApplicationCard, CARD_MAX_WIDTH, CARD_MIN_WIDTH
 
 LOGGER = logging.getLogger(__name__)
@@ -91,6 +94,16 @@ class _SystemPackageSignals(QObject):
     failed = Signal(object, str, int)
 
 
+class _FlatpakSignals(QObject):
+    loaded = Signal(object, int)
+    failed = Signal(object, int)
+
+
+class _FlatpakSearchSignals(QObject):
+    loaded = Signal(object, str, int)
+    failed = Signal(object, str, int)
+
+
 class AppStorePage(NavigablePage):
     """Application catalog with Stage 4 install/remove/launch actions.
 
@@ -117,6 +130,7 @@ class AppStorePage(NavigablePage):
         aur_service: AurService | None = None,
         popularity_service: PkgstatsPopularityService | None = None,
         system_package_service: SystemPackageSearchService | None = None,
+        flatpak_service: FlatpakService | None = None,
     ) -> None:
         super().__init__(parent)
         official_service_injected = service is not None
@@ -131,6 +145,16 @@ class AppStorePage(NavigablePage):
         )
         self._popularity_service = popularity_service or PkgstatsPopularityService()
         self._system_package_service = system_package_service or SystemPackageSearchService()
+        # Test pages that inject an official catalog remain hermetic unless
+        # explicitly supplied with an injected Flatpak service.
+        self._flatpak_service = flatpak_service if flatpak_service is not None else (None if official_service_injected else FlatpakService())
+        self._flatpak_installed_results: tuple[Application, ...] = ()
+        self._flatpak_search_results: tuple[Application, ...] = ()
+        self._flatpak_search_query = ""
+        self._flatpak_installed_generation = 0
+        self._flatpak_search_generation = 0
+        self._flatpak_error: Exception | None = None
+        self._flatpak_search_error: Exception | None = None
         self._index = ApplicationIndex()
         self._local_index = ApplicationIndex()
         self._local_reader = LocalInstalledApplicationReader()
@@ -190,6 +214,12 @@ class AppStorePage(NavigablePage):
         self._system_package_signals = _SystemPackageSignals(self)
         self._system_package_signals.loaded.connect(self._system_package_search_loaded)
         self._system_package_signals.failed.connect(self._system_package_search_failed)
+        self._flatpak_installed_signals = _FlatpakSignals(self)
+        self._flatpak_installed_signals.loaded.connect(self._flatpak_installed_loaded)
+        self._flatpak_installed_signals.failed.connect(self._flatpak_installed_failed)
+        self._flatpak_search_signals = _FlatpakSearchSignals(self)
+        self._flatpak_search_signals.loaded.connect(self._flatpak_search_loaded)
+        self._flatpak_search_signals.failed.connect(self._flatpak_search_failed)
 
         layout = self.create_page_layout(None, spacing=10)
 
@@ -220,6 +250,7 @@ class AppStorePage(NavigablePage):
         self.source_combo.addItem("Все", "all")
         self.source_combo.addItem("Официальные", "official")
         self.source_combo.addItem("AUR", "aur")
+        self.source_combo.addItem("Flatpak", "flatpak")
         self.source_combo.addItem("Локальные", "local")
         self.source_combo.currentIndexChanged.connect(self._source_changed)
         filters.addWidget(self.source_combo)
@@ -312,6 +343,10 @@ class AppStorePage(NavigablePage):
         self._system_package_timer.setSingleShot(True)
         self._system_package_timer.setInterval(SYSTEM_PACKAGE_SEARCH_DEBOUNCE_MS)
         self._system_package_timer.timeout.connect(self._start_system_package_search)
+        self._flatpak_search_timer = QTimer(self)
+        self._flatpak_search_timer.setSingleShot(True)
+        self._flatpak_search_timer.setInterval(420)
+        self._flatpak_search_timer.timeout.connect(self._start_flatpak_search)
 
         self._set_filters_enabled(False)
         self._show_state(self.STATE_LOADING)
@@ -494,6 +529,8 @@ class AppStorePage(NavigablePage):
             )
         self._index.set_applications(applications)
         self._populate_categories()
+        self._queue_flatpak_installed()
+        self._queue_flatpak_search()
         self._set_filters_enabled(True)
         self.cache_label.setText("Из кэша" if result.cache_hit else "Каталог обновлён")
         self._refresh_last_action_label()
@@ -623,6 +660,7 @@ class AppStorePage(NavigablePage):
             self._apply_filters()
             self._queue_aur_search()
             self._queue_system_package_search()
+            self._queue_flatpak_search()
 
     def sidebar_selection(self) -> tuple[str, str | None]:
         """Return the contextual sidebar item represented by the current page state."""
@@ -664,16 +702,16 @@ class AppStorePage(NavigablePage):
             self._filters_enabled
             and not system_mode
             and (
-                (view == "catalog" and source != "aur")
+                (view == "catalog" and source not in {"aur", "flatpak"})
                 or (view == "installed" and source == "official")
             )
         )
         if system_mode:
             self.source_combo.setToolTip("")
         elif view == "catalog":
-            self.source_combo.setToolTip("Источник приложений: все, официальные, AUR или локальные")
+            self.source_combo.setToolTip("Источник приложений: все, официальные, AUR, Flatpak или локальные")
         elif view == "installed":
-            self.source_combo.setToolTip("Источник установленных приложений: все, официальные, AUR или локальные")
+            self.source_combo.setToolTip("Источник установленных приложений: все, официальные, AUR или локальные; дополнительно Flatpak")
 
     def _set_source_value(self, source: str) -> None:
         index = self.source_combo.findData(source)
@@ -685,7 +723,7 @@ class AppStorePage(NavigablePage):
 
     def _selected_source(self) -> str:
         value = self.source_combo.currentData()
-        return value if value in {"all", "official", "aur", "local"} else "all"
+        return value if value in {"all", "official", "aur", "flatpak", "local"} else "all"
 
     def _set_sort_value(self, sort_mode: str) -> None:
         index = self.sort_combo.findData(sort_mode)
@@ -822,8 +860,10 @@ class AppStorePage(NavigablePage):
         # Official Application objects first, then AUR, then local packages.
         if isinstance(item, AurPackage):
             return 1
-        if item.repository == "Локальный пакет":
+        if (item.metadata_source or "").startswith("flatpak:"):
             return 2
+        if item.repository == "Локальный пакет":
+            return 3
         return 0
 
     def _sort_results(
@@ -888,6 +928,7 @@ class AppStorePage(NavigablePage):
     def _search_changed(self, text: str) -> None:
         if not self._loaded:
             return
+        self._queue_flatpak_search()
         if self._active_view() == "system-packages":
             self._search_timer.stop()
             self._aur_search_timer.stop()
@@ -915,6 +956,7 @@ class AppStorePage(NavigablePage):
         self._search_timer.start()
         self._queue_aur_search()
         self._queue_system_package_search()
+        self._queue_flatpak_search()
 
     @Slot()
     def _source_changed(self, *_args) -> None:
@@ -925,7 +967,7 @@ class AppStorePage(NavigablePage):
             return
         source = self._selected_source()
         view = self._active_view()
-        category_not_applicable = source == "aur" or (view == "installed" and source != "official")
+        category_not_applicable = source in {"aur", "flatpak"} or (view == "installed" and source != "official")
         if category_not_applicable and self.category_combo.currentData() is not None:
             self.category_combo.blockSignals(True)
             self.category_combo.setCurrentIndex(0)
@@ -942,6 +984,8 @@ class AppStorePage(NavigablePage):
                 self._queue_aur_installed()
             self._queue_aur_search()
             self._queue_system_package_search()
+        self._queue_flatpak_installed()
+        self._queue_flatpak_search()
 
     def _view_changed(self, view: str, checked: bool) -> None:
         if self._view_switching:
@@ -973,6 +1017,8 @@ class AppStorePage(NavigablePage):
                 self._queue_system_package_search()
             elif self._active_view() == "installed":
                 self._queue_aur_installed()
+            self._queue_flatpak_installed()
+            self._queue_flatpak_search()
 
     def _active_view(self) -> str:
         if self._system_packages_mode:
@@ -989,6 +1035,7 @@ class AppStorePage(NavigablePage):
             if self._active_view() == "catalog":
                 self._queue_aur_search()
                 self._queue_system_package_search()
+                self._queue_flatpak_search()
 
     def _system_package_search_allowed(self, query: str | None = None) -> bool:
         term = self.search_edit.text().strip() if query is None else str(query).strip()
@@ -1433,6 +1480,12 @@ class AppStorePage(NavigablePage):
             if self._aur_installed_error is not None and not self._local_installed_results:
                 return "Не удалось определить локально установленные приложения."
             return "Локальных приложений по этому запросу не найдено."
+        if source == "flatpak":
+            if self._flatpak_error:
+                return f"Flatpak недоступен: {self._flatpak_error}"
+            if self._flatpak_search_error:
+                return f"Поиск Flathub недоступен: {self._flatpak_search_error}"
+            return "Введите минимум 2 символа для поиска во Flathub."
         if source == "aur":
             if len(query) < 2:
                 return "Введите минимум 2 символа для поиска в AUR."
@@ -1505,6 +1558,17 @@ class AppStorePage(NavigablePage):
         )
         base = self._index.filter(query)
         local_base = self._local_index.filter(query)
+        source = self._selected_source()
+        flatpak_installed = tuple(
+            item for item in self._flatpak_installed_results
+            if search_matches((item.name, item.package_name, item.summary), query.text)
+        ) if not query.category and source in {"all", "flatpak"} else ()
+        flatpak_remote = ()
+        if (view == "catalog" and not query.category and source in {"all", "flatpak"}
+                and self._flatpak_search_query == query.text.strip() and len(query.text.strip()) >= 2):
+            seen = {item.package_name for item in flatpak_installed}
+            flatpak_remote = tuple(item for item in self._flatpak_search_results if item.package_name not in seen)
+        flatpak_items = flatpak_installed + flatpak_remote
         if view == "installed":
             source = self._selected_source()
             official_installed = (
@@ -1528,6 +1592,7 @@ class AppStorePage(NavigablePage):
                 aur_installed,
                 source=source,
                 local=local_installed,
+                flatpak=flatpak_installed,
             )
             if source in {"all", "aur", "local"} and self._aur_installed_loading and not self._filtered:
                 self.empty_text.setText("Загружаю список установленных приложений…")
@@ -1545,7 +1610,7 @@ class AppStorePage(NavigablePage):
                 else ()
             )
             local = local_base if source in {"all", "local"} else ()
-            self._filtered = merge_store_results(official, aur, source=source, local=local)
+            self._filtered = merge_store_results(official, aur, source=source, local=local, flatpak=flatpak_items)
             self.empty_text.setText(self._catalog_empty_text())
 
         self._filtered = self._sort_results(self._filtered)
@@ -1627,6 +1692,15 @@ class AppStorePage(NavigablePage):
 
     @Slot(object)
     def _open_application_details(self, item: object) -> None:
+        if isinstance(item, Application) and (item.metadata_source or "").startswith("flatpak:"):
+            dialog = FlatpakPackageDetailsDialog(item, self)
+            dialog.exec()
+            if dialog.package_state_changed:
+                self._refresh_last_action_label()
+                self.package_state_changed.emit()
+                self._queue_flatpak_installed()
+                self._queue_flatpak_search()
+            return
         if isinstance(item, AurPackage):
             dialog = AurPackageDetailsDialog(
                 item,
@@ -1684,6 +1758,7 @@ class AppStorePage(NavigablePage):
     def refresh_after_system_update(self) -> None:
         self._update_details = None
         self._system_package_service.invalidate()
+        self._queue_flatpak_installed()
         if self._loaded and not self._loading:
             if self._active_view() == "system-packages":
                 self._queue_system_package_search(use_cache=False, immediate=True)
@@ -1691,6 +1766,89 @@ class AppStorePage(NavigablePage):
                 self.reload_catalog(use_cache=False)
                 if self._active_view() == "installed":
                     self._queue_aur_installed(use_cache=False)
+
+    def _queue_flatpak_installed(self) -> None:
+        if self._flatpak_service is None:
+            return
+        self._flatpak_installed_generation += 1
+        generation = self._flatpak_installed_generation
+        future = self._flatpak_service.installed_async()
+        future.add_done_callback(lambda f, g=generation: self._flatpak_installed_finished(f, g))
+
+    def _flatpak_installed_finished(self, future: Future, generation: int) -> None:
+        try:
+            data = future.result()
+        except Exception as exc:
+            self._flatpak_installed_signals.failed.emit(exc, generation)
+        else:
+            self._flatpak_installed_signals.loaded.emit(data, generation)
+
+    @Slot(object, int)
+    def _flatpak_installed_loaded(self, items: object, generation: int) -> None:
+        if generation != self._flatpak_installed_generation:
+            return
+        self._flatpak_error = None
+        self._flatpak_installed_results = tuple(items)
+        if self._loaded:
+            self._apply_filters()
+
+    @Slot(object, int)
+    def _flatpak_installed_failed(self, error: object, generation: int) -> None:
+        if generation != self._flatpak_installed_generation:
+            return
+        self._flatpak_error = error if isinstance(error, Exception) else RuntimeError(str(error))
+        LOGGER.warning("Unable to list Flatpak applications: %s", error)
+        if self._loaded:
+            self._apply_filters()
+
+    def _queue_flatpak_search(self) -> None:
+        self._flatpak_search_timer.stop()
+        self._flatpak_search_generation += 1
+        self._flatpak_search_query = ""
+        self._flatpak_search_results = ()
+        self._flatpak_search_error = None
+        if (self._flatpak_service is None or not self._loaded
+                or self._active_view() != "catalog"
+                or self._selected_source() not in {"all", "flatpak"}
+                or self.category_combo.currentData() is not None
+                or len(self.search_edit.text().strip()) < 2):
+            return
+        self._flatpak_search_timer.start()
+
+    def _start_flatpak_search(self) -> None:
+        if self._flatpak_service is None:
+            return
+        query = self.search_edit.text().strip()
+        generation = self._flatpak_search_generation
+        future = self._flatpak_service.search_async(query)
+        future.add_done_callback(lambda f, q=query, g=generation: self._flatpak_search_finished(f, q, g))
+
+    def _flatpak_search_finished(self, future: Future, query: str, generation: int) -> None:
+        try:
+            data = future.result()
+        except Exception as exc:
+            self._flatpak_search_signals.failed.emit(exc, query, generation)
+        else:
+            self._flatpak_search_signals.loaded.emit(data, query, generation)
+
+    @Slot(object, str, int)
+    def _flatpak_search_loaded(self, items: object, query: str, generation: int) -> None:
+        if generation != self._flatpak_search_generation or query != self.search_edit.text().strip():
+            return
+        self._flatpak_search_error = None
+        self._flatpak_search_query = query
+        self._flatpak_search_results = tuple(items)
+        self._apply_filters()
+
+    @Slot(object, str, int)
+    def _flatpak_search_failed(self, error: object, query: str, generation: int) -> None:
+        if generation != self._flatpak_search_generation:
+            return
+        self._flatpak_search_error = error if isinstance(error, Exception) else RuntimeError(str(error))
+        self._flatpak_search_query = query
+        self._flatpak_search_results = ()
+        LOGGER.warning("Unable to search Flathub: %s", error)
+        self._apply_filters()
 
     def _refresh_last_action_label(self) -> None:
         entry = last_app_store_activity()
@@ -1772,6 +1930,7 @@ class AppStorePage(NavigablePage):
             return
         queued_aur = hasattr(self, "_aur_search_timer") and self._aur_search_timer.isActive()
         queued_system = hasattr(self, "_system_package_timer") and self._system_package_timer.isActive()
+        queued_flatpak = hasattr(self, "_flatpak_search_timer") and self._flatpak_search_timer.isActive()
         busy = any((
             self._loading,
             self._aur_loading,
@@ -1780,6 +1939,7 @@ class AppStorePage(NavigablePage):
             self._system_package_loading,
             queued_aur,
             queued_system,
+            queued_flatpak,
         ))
         if busy:
             self.activity_spinner.start()

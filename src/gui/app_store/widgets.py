@@ -271,7 +271,9 @@ class ApplicationCard(QFrame):
         body.addWidget(self.publisher_label)
         body.addStretch(1)
 
-        if application.metadata_source == "pacman-system-package":
+        if (application.metadata_source or "").startswith("flatpak:"):
+            category_text = application.repository or "Flatpak"
+        elif application.metadata_source == "pacman-system-package":
             version = application.installed_version or application.available_version or ""
             system_bits = [
                 value

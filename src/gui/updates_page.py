@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.activity_log import append_activity, read_activity_entries
+from src.app_store.flatpak import FlatpakAction
+from .app_store.flatpak_ui import FlatpakOperationProcess
 from src.core.dashboard import DashboardSummary
 from src.core.formatting import format_bytes
 from src.core.preferences import (
@@ -105,6 +107,7 @@ class _SourceFilterHeader(QHeaderView):
             "all": "Источник  ▾",
             "official": "Источник · Официальные  ▾",
             "aur": "Источник · AUR  ▾",
+            "flatpak": "Источник · Flatpak  ▾",
         }
         return labels.get(self._source_filter, labels["all"])
 
@@ -134,6 +137,7 @@ class _SourceFilterHeader(QHeaderView):
             ("Все источники", "all"),
             ("Официальные", "official"),
             ("AUR", "aur"),
+            ("Flatpak", "flatpak"),
         )
         for text, value in choices:
             action = menu.addAction(text)
@@ -147,7 +151,7 @@ class _SourceFilterHeader(QHeaderView):
 
 
 def _source_label(source: str) -> str:
-    return "Официальные" if source == "official" else "AUR"
+    return {"official": "Официальные", "aur": "AUR", "flatpak": "Flatpak"}.get(source, source)
 
 
 def _status_for_count(total: int | None, partial: bool) -> tuple[str, str, str]:
@@ -184,6 +188,12 @@ class UpdatesPage(NavigablePage):
         self._details: UpdateDetails | None = None
         self._loaded_once = False
         self._aur_selection: dict[str, bool] = {}
+        self._flatpak_selection: dict[str, bool] = {}
+        self._pending_flatpak: tuple[FlatpakAction, ...] = ()
+        self._flatpak_runner = FlatpakOperationProcess(self)
+        self._flatpak_runner.completed.connect(self._flatpak_finished)
+        self._flatpak_runner.failed.connect(self._flatpak_failed)
+        self._flatpak_runner.running_changed.connect(self._flatpak_running_changed)
         self._rebuilding_table = False
 
         self._session = UpdateSessionProcess(self)
@@ -302,6 +312,8 @@ class UpdatesPage(NavigablePage):
                 parts.append("официальные: объём уточняется")
         if aur_count:
             parts.append("AUR: размер определяется при сборке")
+        if details.flatpak.items:
+            parts.append("Flatpak: размер уточняется при обновлении")
         return "; ".join(parts)
 
     def _build_table(self, layout: QVBoxLayout) -> None:
@@ -384,7 +396,7 @@ class UpdatesPage(NavigablePage):
             self.refresh()
 
     def _busy(self) -> bool:
-        return self._check_worker is not None or self._session.running
+        return self._check_worker is not None or self._session.running or self._flatpak_runner.running
 
     @Slot()
     def refresh(self) -> None:
@@ -415,6 +427,10 @@ class UpdatesPage(NavigablePage):
             name: self._aur_selection.get(name, True)
             for name in known_aur
         }
+        self._flatpak_selection = {
+            f"{item.installation}:{item.name}": self._flatpak_selection.get(f"{item.installation}:{item.name}", True)
+            for item in details.flatpak.items
+        }
         self._apply_details(details)
 
     def _set_checking(self, checking: bool) -> None:
@@ -444,6 +460,10 @@ class UpdatesPage(NavigablePage):
             for name in known_aur
         }
 
+        self._flatpak_selection = {
+            f"{item.installation}:{item.name}": self._flatpak_selection.get(f"{item.installation}:{item.name}", True)
+            for item in details.flatpak.items
+        }
         self._set_checking(False)
         self._apply_details(details)
         self.update_state_changed.emit(details)
@@ -499,7 +519,7 @@ class UpdatesPage(NavigablePage):
             self.table.setRowCount(len(items))
             for row, item in enumerate(items):
                 choice = QTableWidgetItem()
-                if item.source == "aur":
+                if item.source in {"aur", "flatpak"}:
                     choice.setFlags(
                         Qt.ItemFlag.ItemIsEnabled
                         | Qt.ItemFlag.ItemIsSelectable
@@ -507,11 +527,11 @@ class UpdatesPage(NavigablePage):
                     )
                     choice.setCheckState(
                         Qt.CheckState.Checked
-                        if self._aur_selection.get(item.name, True)
+                        if (self._aur_selection.get(item.name, True) if item.source == "aur" else self._flatpak_selection.get(f"{item.installation}:{item.name}", True))
                         else Qt.CheckState.Unchecked
                     )
-                    choice.setData(Qt.ItemDataRole.UserRole, item.name)
-                    choice.setToolTip("AUR-пакеты можно выбирать по одному")
+                    choice.setData(Qt.ItemDataRole.UserRole, (item.source, item.installation, item.name))
+                    choice.setToolTip("AUR-пакеты можно выбирать по одному" if item.source == "aur" else "Flatpak-приложения можно выбирать по одному")
                 else:
                     choice.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                     choice.setCheckState(Qt.CheckState.Checked)
@@ -551,10 +571,14 @@ class UpdatesPage(NavigablePage):
     def _selection_changed(self, item: QTableWidgetItem) -> None:
         if self._rebuilding_table or item.column() != 0:
             return
-        package_name = item.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(package_name, str) or not package_name:
+        identity = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(identity, tuple) or len(identity) != 3:
             return
-        self._aur_selection[package_name] = item.checkState() == Qt.CheckState.Checked
+        source, installation, package_name = identity
+        if source == "flatpak":
+            self._flatpak_selection[f"{installation}:{package_name}"] = item.checkState() == Qt.CheckState.Checked
+        elif source == "aur":
+            self._aur_selection[package_name] = item.checkState() == Qt.CheckState.Checked
         self._update_install_button()
 
     def _selected_aur_packages(self) -> tuple[str, ...]:
@@ -567,24 +591,70 @@ class UpdatesPage(NavigablePage):
             if self._aur_selection.get(item.name, True)
         )
 
+    def _selected_flatpak_updates(self) -> tuple[FlatpakAction, ...]:
+        if self._details is None:
+            return ()
+        return tuple(
+            FlatpakAction("update", item.name, item.installation or "system")
+            for item in self._details.flatpak.items
+            if self._flatpak_selection.get(f"{item.installation}:{item.name}", True)
+        )
+
+    def _start_flatpak_batch(self, actions: tuple[FlatpakAction, ...]) -> None:
+        if not actions:
+            self.refresh()
+            return
+        try:
+            self._flatpak_runner.start(actions)
+        except Exception as exc:
+            self._flatpak_failed(str(exc))
+
+    @Slot(bool)
+    def _flatpak_running_changed(self, running: bool) -> None:
+        self._set_controls_enabled(not running)
+        if running:
+            self.status_label.setText("Обновляются Flatpak-приложения…")
+            self.status_spinner.start()
+            self.status_stack.setCurrentWidget(self.status_spinner)
+        else:
+            self.status_spinner.stop()
+            self.status_stack.setCurrentWidget(self.status_badge)
+
+    @Slot()
+    def _flatpak_finished(self) -> None:
+        self._pending_flatpak = ()
+        self.update_state.invalidate()
+        self.system_update_finished.emit()
+        self.status_badge.set_status("ok", "Flatpak обновлён")
+        self.refresh()
+
+    @Slot(str)
+    def _flatpak_failed(self, error: str) -> None:
+        self._pending_flatpak = ()
+        self.update_state.invalidate()
+        self.system_update_finished.emit()
+        QMessageBox.warning(self, "Обновление Flatpak завершилось с ошибкой", error)
+        self.refresh()
+
     def _update_install_button(self) -> None:
         details = self._details
         if details is None or self._busy():
             self.install_button.setEnabled(False)
             return
-        if details.official.count is None:
+        if details.official.count is None and not self._selected_flatpak_updates():
             # Never start an AUR-only transaction when the official Arch state
             # could not be checked; that would risk a partial/unsupported update.
             self.install_button.setEnabled(False)
             self.install_button.setText("Установить обновления")
             return
-        official_count = details.official.count
+        official_count = details.official.count or 0
         selected_aur = self._selected_aur_packages()
-        enabled = official_count > 0 or bool(selected_aur)
+        selected_flatpak = self._selected_flatpak_updates()
+        enabled = official_count > 0 or bool(selected_aur) or bool(selected_flatpak)
         self.install_button.setEnabled(enabled)
-        if details.aur.items:
+        if details.aur.items or selected_flatpak:
             self.install_button.setText(
-                f"Установить обновления ({official_count + len(selected_aur)})"
+                f"Установить обновления ({official_count + len(selected_aur) + len(selected_flatpak)})"
                 if enabled
                 else "Установить обновления"
             )
@@ -601,18 +671,32 @@ class UpdatesPage(NavigablePage):
         if details is None or self._busy():
             return
 
-        if details.official.count is None:
+        if details.official.count is None and not self._selected_flatpak_updates():
             QMessageBox.warning(
                 self,
                 "Обновление не начато",
                 "Сначала нужно успешно проверить официальные обновления Arch.",
             )
             return
-        official_count = details.official.count
-        aur_packages = self._selected_aur_packages()
-        if official_count == 0 and not aur_packages:
+        official_count = details.official.count or 0
+        aur_packages = self._selected_aur_packages() if details.official.count is not None else ()
+        flatpak_updates = self._selected_flatpak_updates()
+        if official_count == 0 and not aur_packages and not flatpak_updates:
             return
 
+        if official_count == 0 and not aur_packages and flatpak_updates:
+            answer = QMessageBox.question(
+                self, "Обновить Flatpak?",
+                f"Выбрано Flatpak-приложений: {len(flatpak_updates)}.\n"
+                "Операции выполняются через Flatpak без pacman/yay. "
+                "Для общесистемных приложений KDE может запросить авторизацию.\n"
+                "Точка восстановления перед системным обновлением в этом режиме не создаётся.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._start_flatpak_batch(flatpak_updates)
+            return
         protected = self.settings.value(
             AUTO_RESTORE_POINT_BEFORE_UPDATE_KEY,
             AUTO_RESTORE_POINT_BEFORE_UPDATE_DEFAULT,
@@ -633,7 +717,7 @@ class UpdatesPage(NavigablePage):
             self,
             "Установить обновления?",
             f"Официальных обновлений: {official_count}.\n"
-            f"{aur_text}\n\n"
+            f"{aur_text}\nFlatpak-приложений: {len(flatpak_updates)}.\n\n"
             f"{protection_text}\n\n"
             "После подтверждения откроется отдельное окно терминала. "
             "Пароль администратора вводится там один раз; вопросы pacman/yay "
@@ -644,6 +728,7 @@ class UpdatesPage(NavigablePage):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
+        self._pending_flatpak = flatpak_updates
         self._session_started_at = datetime.now().astimezone()
         self._session_official_count = official_count
         self._session_aur_count = len(aur_packages)
@@ -692,6 +777,12 @@ class UpdatesPage(NavigablePage):
 
         if result.state == "success":
             self.update_state.invalidate()
+            if self._pending_flatpak:
+                actions = self._pending_flatpak
+                self._pending_flatpak = ()
+                self.system_update_finished.emit()
+                self._start_flatpak_batch(actions)
+                return
             self.system_update_finished.emit()
             self.status_badge.set_status("ok", "Обновление завершено успешно.")
             self.status_label.setText("Обновление завершено")
@@ -699,6 +790,7 @@ class UpdatesPage(NavigablePage):
             self.refresh()
             return
 
+        self._pending_flatpak = ()
         if result.state == "aur-skipped":
             self.update_state.invalidate()
             self.system_update_finished.emit()
@@ -732,6 +824,7 @@ class UpdatesPage(NavigablePage):
 
     @Slot(str)
     def _update_session_failed(self, error: str) -> None:
+        self._pending_flatpak = ()
         self._set_controls_enabled(True)
         LOGGER.error("Update session failed: %s", error)
         reboot = RebootStatus(
@@ -900,6 +993,14 @@ class UpdatesPage(NavigablePage):
         if self._package_info_worker is not None:
             return
         worker = _PackageInfoWorker(item)
+        if item.source == "flatpak":
+            self.package_details_text.setPlainText(
+                f"Flatpak / {item.installation or 'system'}\n"
+                f"Приложение: {item.name}\n"
+                f"Установлено: {item.current_version}\n"
+                f"Доступно: {item.new_version}"
+            )
+            return
         self._package_info_target = item
         self._package_info_worker = worker
         worker.signals.completed.connect(self._package_info_loaded)

@@ -16,6 +16,7 @@ class UpdateItem:
     new_version: str
     source: str
     download_size: int | None = None
+    installation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -34,19 +35,20 @@ class UpdateDetails:
     official: UpdateSourceDetails
     aur: UpdateSourceDetails
     checked_at: datetime
+    flatpak: UpdateSourceDetails = UpdateSourceDetails((), True)
 
     @property
     def total(self) -> int | None:
-        counts = [source.count for source in (self.official, self.aur) if source.count is not None]
+        counts = [source.count for source in (self.official, self.aur, self.flatpak) if source.count is not None]
         return sum(counts) if counts else None
 
     @property
     def partial(self) -> bool:
-        return self.official.count is None or self.aur.count is None
+        return self.official.count is None or self.aur.count is None or self.flatpak.count is None
 
     @property
     def all_items(self) -> tuple[UpdateItem, ...]:
-        return self.official.items + self.aur.items
+        return self.official.items + self.aur.items + self.flatpak.items
 
 
 @dataclass(frozen=True)
@@ -60,15 +62,16 @@ class UpdateSourceSummary:
 class UpdatesSummary:
     official: UpdateSourceSummary
     aur: UpdateSourceSummary
+    flatpak: UpdateSourceSummary = UpdateSourceSummary(0, True)
 
     @property
     def total(self) -> int | None:
-        counts = [source.count for source in (self.official, self.aur) if source.count is not None]
+        counts = [source.count for source in (self.official, self.aur, self.flatpak) if source.count is not None]
         return sum(counts) if counts else None
 
     @property
     def partial(self) -> bool:
-        return self.official.count is None or self.aur.count is None
+        return self.official.count is None or self.aur.count is None or self.flatpak.count is None
 
 
 ANSI_CSI_RE = re.compile(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]")
@@ -257,13 +260,17 @@ def _aur_update_details() -> UpdateSourceDetails:
 
 
 def collect_update_details() -> UpdateDetails:
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="arch-manager-updates") as pool:
+    from src.app_store.flatpak import flatpak_update_details
+
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="arch-manager-updates") as pool:
         official_future = pool.submit(_official_update_details)
         aur_future = pool.submit(_aur_update_details)
+        flatpak_future = pool.submit(flatpak_update_details)
         return UpdateDetails(
             official=official_future.result(),
             aur=aur_future.result(),
             checked_at=datetime.now().astimezone(),
+            flatpak=flatpak_future.result(),
         )
 
 
@@ -277,6 +284,7 @@ def summary_from_details(details: UpdateDetails) -> UpdatesSummary:
     return UpdatesSummary(
         official=_to_summary(details.official),
         aur=_to_summary(details.aur),
+        flatpak=_to_summary(details.flatpak),
     )
 
 
