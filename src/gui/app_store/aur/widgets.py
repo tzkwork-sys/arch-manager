@@ -8,6 +8,8 @@ from src.app_store.aur.models import AurPackage
 
 from ...theme import muted_text
 from ..widgets import (
+    SOURCE_BADGE_COLOR,
+    style_source_badge,
     CARD_HEIGHT,
     CARD_ICON_SIZE,
     CARD_MAX_WIDTH,
@@ -18,7 +20,7 @@ from ..widgets import (
 )
 
 
-AUR_BADGE_COLOR = QColor("#d6a84b")
+AUR_BADGE_COLOR = SOURCE_BADGE_COLOR
 AUR_WARNING_COLOR = QColor("#d98b43")
 _MAX_TITLE_CHARS = 180
 _MAX_SUMMARY_CHARS = 1200
@@ -150,14 +152,8 @@ class AurPackageCard(QFrame):
         footer.setSpacing(8)
 
         self.source_badge = _plain_label("AUR")
+        style_source_badge(self.source_badge, "Источник: Arch User Repository")
         self.source_badge.setObjectName("appStoreAurBadge")
-        badge_font = self.source_badge.font()
-        badge_font.setBold(True)
-        self.source_badge.setFont(badge_font)
-        self.source_badge.setStyleSheet(
-            f"color: {AUR_BADGE_COLOR.name()}; font-weight: 700;"
-        )
-        self.source_badge.setToolTip("Источник: Arch User Repository")
         footer.addWidget(self.source_badge)
 
         self.version_label = _plain_label(version_text)

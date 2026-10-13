@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QIcon, QPalette
+from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPalette
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
 
 from src.app_store.categories import CATEGORY_LABELS_RU
@@ -21,6 +21,40 @@ CARD_HEIGHT = 154
 CARD_ICON_SIZE = 48
 INSTALLED_GREEN = STATUS_COLORS["ok"]
 UPDATE_AMBER = STATUS_COLORS["warning"]
+# Shared source badge treatment for Official, AUR and Flatpak.
+SOURCE_BADGE_COLOR = QColor("#d6a84b")
+
+
+def style_source_badge(label: QLabel, tooltip: str = "") -> QLabel:
+    """Apply shared source styling to existing official/AUR/Flatpak labels."""
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    label.setObjectName("appStoreSourceBadge")
+    font = label.font()
+    font.setBold(True)
+    label.setFont(font)
+    label.setStyleSheet(f"color: {SOURCE_BADGE_COLOR.name()}; font-weight: 700;")
+    label.setToolTip(tooltip or label.text())
+    label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+    return label
+
+
+def make_source_badge(title: str, tooltip: str = "", *, parent=None) -> QLabel:
+    return style_source_badge(QLabel(title, parent), tooltip)
+
+
+def source_badge_info(application: Application) -> tuple[str, str]:
+    """Keep actual source (not category) visible even for AppStream apps."""
+    repository = (application.repository or "").strip()
+    meta = application.metadata_source or ""
+    if meta.startswith("flatpak:"):
+        remote = repository.partition("·")[2].strip() if "·" in repository else "flathub"
+        return "Flatpak", f"Flatpak · {remote}"
+    if repository == "Локальный пакет" or meta.startswith("local"):
+        return "Локальный", "Локально установленный пакет"
+    repo = repository.split("/", 1)[0].strip().lower()
+    if repo in {"core", "extra", "multilib", "testing", "core-testing", "extra-testing", "multilib-testing"}:
+        return repo, f"Официальный репозиторий Arch Linux: {repository}"
+    return "Official", f"Официальный репозиторий Arch Linux{': ' + repository if repository else ''}"
 CARD_HIGHLIGHT_BORDER_WIDTH = 1
 CARD_HIGHLIGHT_RADIUS = CARD_RADIUS
 
@@ -291,11 +325,18 @@ class ApplicationCard(QFrame):
         self.category_label = _CompactTextLabel(category_text, max_lines=1)
         self.category_label.setObjectName("appStoreCategoryLabel")
         muted_text(self.category_label)
+        # A consistent source/metadata row: highlighted source then muted detail.
+        # Keep category_label available for existing tests and accessibility.
+        badge_text, badge_tooltip = source_badge_info(application)
+        self.source_badge = make_source_badge(badge_text, badge_tooltip)
+        source_row = QHBoxLayout()
+        source_row.setContentsMargins(0, 0, 0, 0)
+        source_row.setSpacing(8)
+        source_row.addWidget(self.source_badge)
         if is_flatpak:
-            font = self.category_label.font()
-            font.setBold(True)
-            self.category_label.setFont(font)
-        body.addWidget(self.category_label)
+            self.category_label.setToolTip(application.repository or "Flatpak")
+        source_row.addWidget(self.category_label, 1)
+        body.addLayout(source_row)
 
         # AUR/pacman cards retain their existing layout. Flatpak gains a
         # separate version line, rather than showing only "Flatpak · flathub".
