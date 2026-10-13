@@ -31,6 +31,7 @@ from .updates_page import UpdatesPage
 from .lifecycle import package_operation_running
 from .theme import PAGE_STYLESHEET
 
+# Keep the original navigation contract; add theme fallbacks separately.
 NAV_ITEMS = [
     ("Обзор", "go-home-symbolic"),
     ("Обновления", "system-software-update-symbolic"),
@@ -40,6 +41,32 @@ NAV_ITEMS = [
     ("Приложения", "system-software-install-symbolic"),
     ("Настройки", "settings-configure-symbolic"),
 ]
+
+NAV_ICON_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "Обзор": ("go-home", "user-home"),
+    "Обновления": ("system-software-update", "view-refresh"),
+    "Восстановление": ("document-revert-symbolic", "edit-undo"),
+    "Обслуживание": ("tools-wizard-symbolic", "preferences-system", "applications-system"),
+    "Система": ("computer", "utilities-system-monitor"),
+    "Приложения": ("system-software-install", "applications-other"),
+    "Настройки": ("configure", "preferences-system"),
+}
+
+# Each store category has its own thematic icon, without changing its label or order.
+APP_STORE_CATEGORY_ICONS: dict[str, tuple[str, ...]] = {
+    "internet": ("applications-internet", "internet-web-browser", "network-workgroup"),
+    "office": ("applications-office", "x-office-document", "document-edit"),
+    "graphics": ("applications-graphics", "color-management", "draw-freehand"),
+    "photo-video": ("applications-multimedia", "camera-photo", "video-x-generic"),
+    "audio": ("audio-headphones", "applications-multimedia", "audio-x-generic"),
+    "development": ("applications-development", "code-context", "text-x-script"),
+    "education": ("applications-education", "accessories-dictionary", "help-contents"),
+    "games": ("applications-games", "input-gaming", "games-config-options"),
+    "system-tools": ("applications-system", "preferences-system", "computer"),
+    "science": ("applications-science", "science", "accessories-calculator"),
+    "communication": ("internet-mail", "mail-message-new", "applications-internet"),
+    "other": ("applications-other", "applications-accessories", "package-x-generic"),
+}
 
 NAV_LAYOUT_VERSION = 4
 
@@ -62,7 +89,8 @@ class MainWindow(QMainWindow):
         self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         for text, icon_name in NAV_ITEMS:
-            item = QListWidgetItem(QIcon.fromTheme(icon_name), text)
+            icon = self._app_store_theme_icon(icon_name, NAV_ICON_FALLBACKS.get(text, ()))
+            item = QListWidgetItem(icon, text)
             item.setSizeHint(QSize(220, 43))
             self.navigation.addItem(item)
 
@@ -191,13 +219,14 @@ class MainWindow(QMainWindow):
         self._add_app_store_nav_item(
             "Системные пакеты", "system-packages",
             icon_name="package-x-generic",
-            icon_fallbacks=("applications-system",),
+            icon_fallbacks=("applications-system", "computer"),
         )
 
         self._add_app_store_section_separator()
         self._add_app_store_section_header("КАТАЛОГ")
         self._add_app_store_nav_item(
-            "Все приложения", "catalog", icon_name="view-grid-symbolic"
+            "Все приложения", "catalog", icon_name="view-grid-symbolic",
+            icon_fallbacks=("view-grid", "applications-other"),
         )
 
         for entry in categories or ():
@@ -207,7 +236,12 @@ class MainWindow(QMainWindow):
                 continue
             if not isinstance(key, str) or not isinstance(label, str):
                 continue
-            self._add_app_store_nav_item(label, "category", category=key)
+            self._add_app_store_nav_item(
+                label, "category", category=key,
+                icon_fallbacks=APP_STORE_CATEGORY_ICONS.get(
+                    key, ("applications-other", "package-x-generic")
+                ),
+            )
 
         self.app_store_navigation.blockSignals(False)
         self._sync_app_store_sidebar_selection(current_entry, current_category)
