@@ -27,6 +27,7 @@ from src.app_store.aur.service import AurService
 from src.app_store.catalog import AppCatalogService, CatalogLoadResult
 from src.app_store.categories import CATEGORY_LABELS_RU
 from src.app_store.installed import InstalledApplications
+from src.app_store.install_dates import PacmanInstallDates, installation_timestamp
 from src.app_store.flatpak import FlatpakService
 from src.app_store.search import search_matches
 from src.app_store.integration import (
@@ -184,6 +185,7 @@ class AppStorePage(NavigablePage):
         self._aur_installed_loading = False
         self._aur_installed_error: Exception | None = None
         self._aur_installed_generation = 0
+        self._install_dates = PacmanInstallDates()
         self._popularity_scores: dict[str, float] = {}
         self._popularity_counts: dict[str, int] = {}
         self._popularity_loading = False
@@ -263,6 +265,8 @@ class AppStorePage(NavigablePage):
         self.sort_combo.setMinimumHeight(36)
         self.sort_combo.addItem("По популярности", "popularity")
         self.sort_combo.addItem("По названию", "name")
+        self.sort_combo.addItem("По дате установки (новые сначала)", "installed-newest")
+        self.sort_combo.addItem("По дате установки (старые сначала)", "installed-oldest")
         self.sort_combo.setToolTip(
             "Популярность берётся из анонимной статистики pkgstats и кэшируется на 24 часа."
         )
@@ -700,6 +704,14 @@ class AppStorePage(NavigablePage):
         source_selectable = view in {"catalog", "installed"}
         self.source_combo.setEnabled(self._filters_enabled and source_selectable)
         self.sort_combo.setEnabled(self._filters_enabled and not system_mode)
+        for value in ("installed-newest", "installed-oldest"):
+            index = self.sort_combo.findData(value)
+            if index >= 0:
+                model_item = self.sort_combo.model().item(index)
+                if model_item is not None:
+                    model_item.setEnabled(view == "installed")
+        if view != "installed" and self._selected_sort().startswith("installed-"):
+            self._set_sort_value("popularity")
         self.category_combo.setEnabled(
             self._filters_enabled
             and not system_mode
@@ -737,7 +749,7 @@ class AppStorePage(NavigablePage):
 
     def _selected_sort(self) -> str:
         value = self.sort_combo.currentData()
-        return value if value in {"name", "popularity"} else "name"
+        return value if value in {"name", "popularity", "installed-newest", "installed-oldest"} else "name"
 
     @Slot()
     def _sort_changed(self, *_args) -> None:
@@ -872,7 +884,19 @@ class AppStorePage(NavigablePage):
         self,
         items: tuple[Application | AurPackage, ...],
     ) -> tuple[Application | AurPackage, ...]:
-        if self._selected_sort() != "popularity":
+        sort_mode = self._selected_sort()
+        if sort_mode.startswith("installed-") and self._active_view() == "installed":
+            self._install_dates.refresh()
+            newest = sort_mode == "installed-newest"
+            def installed_key(item: Application | AurPackage):
+                stamp = installation_timestamp(item, self._install_dates)
+                return (
+                    stamp is None,
+                    -stamp if newest and stamp is not None else (stamp if stamp is not None else 0),
+                    *self._name_sort_key(item),
+                )
+            return tuple(sorted(items, key=installed_key))
+        if sort_mode != "popularity":
             return tuple(
                 sorted(
                     items,
@@ -1702,6 +1726,23 @@ class AppStorePage(NavigablePage):
                     getattr(item, "name", "<unknown>"),
                 )
                 continue
+            if self._active_view() == "installed" and self._selected_sort().startswith("installed-"):
+                timestamp = installation_timestamp(item, self._install_dates)
+                date_text = (
+                    f"Установлено: {datetime.fromtimestamp(timestamp).strftime('%d.%m.%Y %H:%M')}"
+                    if timestamp is not None else "Дата установки неизвестна"
+                )
+                date_label = QLabel(date_text)
+                date_label.setObjectName("appStoreInstallationDate")
+                muted_text(date_label)
+                date_label.setToolTip(
+                    "Дата события установки из системного журнала; обновления не учитываются."
+                    if timestamp is not None else
+                    "Нет достоверной даты установки в системном журнале (например, Flatpak или старые записи)."
+                )
+                body_layout = card.layout().itemAt(1).layout()
+                body_layout.addWidget(date_label)
+                card.setFixedHeight(card.height() + 20)
             card.activated.connect(self._open_application_details)
             self._cards.append(card)
         if self._cards:
