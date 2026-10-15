@@ -17,84 +17,8 @@ TITLE='Arch Manager — обновление системы'
 export ARCH_MANAGER_PAUSE_ON_EXIT=1
 
 if command -v konsole >/dev/null 2>&1; then
-    # KWin controls exact half-screen tiling on Wayland, not Konsole geometry.
-    # This temporary script affects only this update window.
-    KWIN_DBUS=""
-    for command in qdbus6 qdbus-qt6; do
-        if command -v "$command" >/dev/null 2>&1; then
-            KWIN_DBUS=$(command -v "$command")
-            break
-        fi
-    done
-    KWIN_SCRIPT=""
-    KWIN_ID=""
-    TOKEN="arch-manager-update-$$-$RANDOM"
-    cleanup_kwin() {
-        if [[ -n "$KWIN_ID" && -n "$KWIN_DBUS" ]]; then
-            "$KWIN_DBUS" org.kde.KWin /Scripting \
-                org.kde.kwin.Scripting.unloadScript "$TOKEN" >/dev/null 2>&1 || true
-        fi
-        if [[ -n "$KWIN_SCRIPT" ]]; then
-            rm -f -- "$KWIN_SCRIPT"
-        fi
-    }
-    trap cleanup_kwin EXIT
-    if [[ -n "$KWIN_DBUS" && "${XDG_SESSION_TYPE:-}" == wayland ]]; then
-        KWIN_SCRIPT=$(mktemp -t arch-manager-kwin-XXXXXXXX.js)
-        cat >"$KWIN_SCRIPT" <<EOF
-// Tile only the new Konsole window with this unique session marker.
-const marker = "$TOKEN";
-let placed = false;
-function apply(window) {
-    if (placed || !window) return;
-    if (String(window.caption || "").indexOf(marker) < 0) return;
-    placed = true;
-    // KWin 6 scripting does not expose a writable quickTileMode property.
-    // Use the usable screen area so panels are respected, without fixed pixels.
-    const area = workspace.clientArea(KWin.MaximizeArea, window);
-    const half = Math.floor(area.width / 2);
-    window.frameGeometry = {
-        x: area.x + half,
-        y: area.y,
-        width: area.width - half,
-        height: area.height
-    };
-}
-workspace.windowAdded.connect(function(window) {
-    apply(window);
-    if (!placed && window.captionChanged)
-        window.captionChanged.connect(function() { apply(window); });
-});
-workspace.windowList().forEach(apply);
-EOF
-        KWIN_ID=$("$KWIN_DBUS" org.kde.KWin /Scripting \
-            org.kde.kwin.Scripting.loadScript "$KWIN_SCRIPT" "$TOKEN" 2>/dev/null || true)
-        if [[ "$KWIN_ID" =~ ^[0-9]+$ ]]; then
-            "$KWIN_DBUS" org.kde.KWin "/Scripting/$KWIN_ID" \
-                org.kde.kwin.Script.run >/dev/null 2>&1 || {
-                echo 'Arch Manager: не удалось активировать KWin-размещение.' >&2
-                KWIN_ID=""
-            }
-        else
-            KWIN_ID=""
-            echo 'Arch Manager: KWin-размещение недоступно.' >&2
-        fi
-    fi
-    # Keep waiting for the real terminal, preserving QProcess lifecycle.
-    # A fixed profile tab title survives the usual dynamic bash/directory caption.
-    # The existing KWin rule excludes captions containing arch-manager-update-.
-    # It must remain untouched: ordinary Konsole windows retain their old layout.
-    if [[ "${1:-}" == '--arch-manager-window-test' ]]; then
-        konsole --separate \
-            -p "LocalTabTitleFormat=$TOKEN" \
-            -p "RemoteTabTitleFormat=$TOKEN" \
-            -e /usr/bin/bash -c 'printf "\nArch Manager: тест размещения окна (никаких обновлений).\nНажмите Enter для закрытия..."; read -r _' 
-    else
-        konsole --separate \
-            -p "LocalTabTitleFormat=$TOKEN" \
-            -p "RemoteTabTitleFormat=$TOKEN" \
-            -e "$RUNNER" "$@"
-    fi
+    # Separate interactive terminal; regular KWin rules decide its placement.
+    konsole --separate --title "$TITLE" -e "$RUNNER" "$@"
     exit $?
 elif command -v gnome-terminal >/dev/null 2>&1; then
     exec gnome-terminal --wait --title="$TITLE" -- "$RUNNER" "$@"
