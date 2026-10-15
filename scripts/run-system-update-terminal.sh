@@ -49,7 +49,16 @@ function apply(window) {
     if (placed || !window) return;
     if (String(window.caption || "").indexOf(marker) < 0) return;
     placed = true;
-    window.quickTileMode = 2; // KWin QuickTileFlag.Right
+    // KWin 6 scripting does not expose a writable quickTileMode property.
+    // Use the usable screen area so panels are respected, without fixed pixels.
+    const area = workspace.clientArea(KWin.MaximizeArea, window);
+    const half = Math.floor(area.width / 2);
+    window.frameGeometry = {
+        x: area.x + half,
+        y: area.y,
+        width: area.width - half,
+        height: area.height
+    };
 }
 workspace.windowAdded.connect(function(window) {
     apply(window);
@@ -72,7 +81,20 @@ EOF
         fi
     fi
     # Keep waiting for the real terminal, preserving QProcess lifecycle.
-    konsole --separate --title "$TOKEN" -e "$RUNNER" "$@"
+    # A fixed profile tab title survives the usual dynamic bash/directory caption.
+    # The existing KWin rule excludes captions containing arch-manager-update-.
+    # It must remain untouched: ordinary Konsole windows retain their old layout.
+    if [[ "${1:-}" == '--arch-manager-window-test' ]]; then
+        konsole --separate \
+            -p "LocalTabTitleFormat=$TOKEN" \
+            -p "RemoteTabTitleFormat=$TOKEN" \
+            -e /usr/bin/bash -c 'printf "\nArch Manager: тест размещения окна (никаких обновлений).\nНажмите Enter для закрытия..."; read -r _' 
+    else
+        konsole --separate \
+            -p "LocalTabTitleFormat=$TOKEN" \
+            -p "RemoteTabTitleFormat=$TOKEN" \
+            -e "$RUNNER" "$@"
+    fi
     exit $?
 elif command -v gnome-terminal >/dev/null 2>&1; then
     exec gnome-terminal --wait --title="$TITLE" -- "$RUNNER" "$@"
