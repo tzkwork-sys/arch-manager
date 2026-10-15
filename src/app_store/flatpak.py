@@ -181,21 +181,55 @@ class FlatpakService:
         return _WORKERS.submit(self.search, query)
 
     def update_details(self):
-        # Avoid importing updates at module import time: core.updates imports us lazily.
+        # Query applications and runtimes separately: --app is retained for
+        # compatibility, while --runtime discovers Mesa, VAAPI, codecs, etc.
         from src.core.updates import UpdateItem, UpdateSourceDetails
-        installed = {(app.metadata_source.removeprefix("flatpak:"), app.package_name): app for app in self.installed()}
-        if not installed:
-            return UpdateSourceDetails((), True)
+
+        applications = {
+            (app.metadata_source.removeprefix("flatpak:"), app.package_name): app
+            for app in self.installed()
+        }
         updates = []
+        seen: set[tuple[str, str, str]] = set()
+
         for scope in _SCOPES:
-            if not any(key[0] == scope for key in installed):
-                continue
-            output = self._read(["flatpak", "remote-ls", "--updates", "--app", f"--{scope}", "--columns=application:f,version:f,branch:f"], timeout=75)
-            for app_id, version, _branch, *_ in _rows(output, 3):
-                app = installed.get((scope, app_id))
-                if app is None:
+            runtimes: dict[tuple[str, str], str] = {}
+            runtime_output = self._read(
+                ["flatpak", "list", "--runtime", f"--{scope}",
+                 "--columns=application:f,version:f,branch:f"], timeout=45,
+            )
+            for app_id, version, branch, *_ in _rows(runtime_output, 3):
+                runtimes[(app_id, branch)] = version or "—"
+
+            for kind in ("app", "runtime"):
+                # Preserve the existing --app query, important for regular apps.
+                if kind == "app" and not any(key[0] == scope for key in applications):
                     continue
-                updates.append(UpdateItem(app_id, app.installed_version or "—", version if version and version != app.installed_version else "новая ревизия", "flatpak", installation=scope))
+                if kind == "runtime" and not runtimes:
+                    continue
+                output = self._read(
+                    ["flatpak", "remote-ls", "--updates", f"--{kind}", f"--{scope}",
+                     "--columns=application:f,version:f,branch:f"], timeout=75,
+                )
+                for app_id, version, branch, *_ in _rows(output, 3):
+                    key = (scope, app_id, branch)
+                    if key in seen:
+                        continue
+                    if kind == "app":
+                        app = applications.get((scope, app_id))
+                        if app is None:
+                            continue
+                        current = app.installed_version or "—"
+                    else:
+                        current = runtimes.get((app_id, branch))
+                        if current is None:
+                            continue
+                    seen.add(key)
+                    updates.append(UpdateItem(
+                        app_id, current,
+                        version if version and version != current else "новая ревизия",
+                        "flatpak", installation=scope,
+                    ))
         return UpdateSourceDetails(tuple(updates), True)
 
 
