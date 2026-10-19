@@ -215,13 +215,14 @@ def _maintenance_state(summary: MaintenanceSummary) -> tuple[str, str, str]:
         return "Проверка выполнена не полностью", "warning", "Часть категорий обслуживания недоступна."
 
     if reclaimable <= 0 and review_count == 0:
-        if (summary.journal_usage_bytes or 0) > 0:
-            return (
-                "Есть что очистить (старые журналы)",
-                "ok",
-                "Размер удаляемой части журнала заранее точно не определяется.",
-            )
-        return "Очистка не требуется", "ok", "Обслуживание системы не требуется."
+        # Total journal usage includes active files and cannot establish that
+        # any archives older than 30 days are actually removable.
+        return (
+            "Очистка не требуется",
+            "ok",
+            "Активные системные журналы могут занимать место — это нормально. "
+            "Старые архивы проверяются отдельно в «Обслуживании».",
+        )
 
     amount = format_bytes(reclaimable) if reclaimable > 0 else "без оценки объёма"
     label = f"Есть что очистить ({amount})"

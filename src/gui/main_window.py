@@ -101,6 +101,9 @@ class MainWindow(QMainWindow):
         updates_page = UpdatesPage(update_state=self.update_state)
         recovery_center_page = RecoveryCenterPage()
         maintenance_page = MaintenancePage()
+        maintenance_page.maintenance_changed.connect(
+            lambda: dashboard.refresh() if self.stack.currentIndex() == 0 else None
+        )
         system_page = SystemPage()
         app_store_page = AppStorePage()
         self.app_store_page = app_store_page
@@ -390,9 +393,12 @@ class MainWindow(QMainWindow):
     def set_page(self, index: int) -> None:
         if not 0 <= index < self.stack.count():
             index = 0
+        # Switch the stack first: the navigation signal re-enters set_page().
+        # This order makes the return-to-Overview refresh run only once.
+        previous_index = self.stack.currentIndex()
+        self.stack.setCurrentIndex(index)
         if self.navigation.currentRow() != index:
             self.navigation.setCurrentRow(index)
-        self.stack.setCurrentIndex(index)
         self.sidebar_brand.setText("Диспетчер приложений" if index == 5 else "Arch Manager")
         if hasattr(self, "sidebar_stack"):
             self.sidebar_stack.setCurrentIndex(1 if index == 5 else 0)
@@ -403,6 +409,15 @@ class MainWindow(QMainWindow):
             page.ensure_loaded()
         self.settings.setValue("window/currentPage", index)
         self.settings.setValue("window/navigationLayoutVersion", NAV_LAYOUT_VERSION)
+        # Updates, maintenance, restore points, settings and package operations
+        # can all change the Overview. Re-check on every real return to it.
+        # DashboardPage.refresh() is asynchronous and coalesces busy requests.
+        if index == 0 and previous_index != 0:
+            # Lightweight navigation tests may use a placeholder Overview page.
+            # Refresh only when the target page supports that operation.
+            refresh = getattr(page, "refresh", None)
+            if callable(refresh):
+                refresh()
 
     def restore_window_state(self) -> None:
         geometry = self.settings.value("window/geometry")

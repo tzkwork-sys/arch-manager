@@ -47,16 +47,28 @@ clean_package_cache() {
 
 clean_orphans() {
     local -a packages=()
-    local output="" rc=0
-    output=$("$PACMAN" -Qtdq 2>/dev/null) || rc=$?
-    (( rc == 0 || rc == 1 )) || fail "could not query orphan packages (pacman rc=$rc)"
-    if [[ -n "$output" ]]; then
-        mapfile -t packages <<<"$output"
-    fi
-    if ((${#packages[@]} > 0)); then
+    local output="" rc=0 passes=0 removed=0
+    # Removing an orphan may expose additional unused dependencies. Traverse
+    # that finite dependency chain in this one confirmed operation, without
+    # changing pacman's explicit -R semantics or using recursive -Rs/-Rns.
+    while (( passes < 20 )); do
+        packages=()
+        output=""
+        rc=0
+        output=$("$PACMAN" -Qtdq 2>/dev/null) || rc=$?
+        (( rc == 0 || rc == 1 )) || fail "could not query orphan packages (pacman rc=$rc)"
+        if [[ -n "$output" ]]; then
+            mapfile -t packages <<<"$output"
+        fi
+        if ((${#packages[@]} == 0)); then
+            printf 'OK\torphans\t%d\n' "$removed"
+            return
+        fi
         "$PACMAN" -R --noconfirm -- "${packages[@]}" >/dev/null
-    fi
-    printf 'OK\torphans\t%d\n' "${#packages[@]}"
+        removed=$((removed + ${#packages[@]}))
+        passes=$((passes + 1))
+    done
+    fail 'orphan cleanup hit the safety limit of 20 passes; inspect the remaining packages manually'
 }
 
 clean_journal() {

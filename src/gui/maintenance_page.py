@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QProgressBar,
     QScrollArea,
     QToolButton,
     QVBoxLayout,
@@ -233,6 +234,8 @@ class _MaintenanceOption(QFrame):
 
 
 class MaintenancePage(NavigablePage):
+    maintenance_changed = Signal()
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.settings = QSettings()
@@ -240,6 +243,7 @@ class MaintenancePage(NavigablePage):
         self._scan_worker: _ScanWorker | None = None
         self._cleanup_worker: _CleanupWorker | None = None
         self._active_cleanup_actions: tuple[MaintenanceAction, ...] = ()
+        self._post_cleanup_actions: tuple[MaintenanceAction, ...] = ()
         self._pacdiff_worker: _PacdiffWorker | None = None
         self._summary: MaintenanceSummary | None = None
         self._loaded_once = False
@@ -401,16 +405,28 @@ class MaintenancePage(NavigablePage):
 
         # The primary action stays visible even when the list itself scrolls.
         action_card = card_frame()
-        action_layout = QHBoxLayout(action_card)
+        action_layout = QVBoxLayout(action_card)
         action_layout.setContentsMargins(*CARD_MARGINS)
+        action_layout.setSpacing(5)
+        action_row = QHBoxLayout()
         self.selection_label = QLabel("Выберите категории для очистки.")
         self.selection_label.setWordWrap(True)
         self.clean_button = QPushButton("Очистить выбранное")
         emphasize_primary_button(self.clean_button)
         self.clean_button.setEnabled(False)
         self.clean_button.clicked.connect(self._confirm_cleanup)
-        action_layout.addWidget(self.selection_label, 1)
-        action_layout.addWidget(self.clean_button)
+        action_row.addWidget(self.selection_label, 1)
+        action_row.addWidget(self.clean_button)
+        action_layout.addLayout(action_row)
+        self.status_label.setWordWrap(True)
+        muted_text(self.status_label)
+        action_layout.addWidget(self.status_label)
+        self.busy_bar = QProgressBar()
+        self.busy_bar.setRange(0, 0)
+        self.busy_bar.setTextVisible(False)
+        self.busy_bar.setFixedHeight(4)
+        self.busy_bar.hide()
+        action_layout.addWidget(self.busy_bar)
         layout.addWidget(action_card)
 
     def _set_config_details(self, text: str) -> None:
@@ -457,14 +473,15 @@ class MaintenancePage(NavigablePage):
 
     @Slot()
     def refresh(self) -> None:
-        if self._scan_worker is not None or self._cleanup_worker is not None:
+        if any((self._scan_worker, self._cleanup_worker, self._pacdiff_worker)):
             return
+        if not self._post_cleanup_actions:
+            self.status_label.hide()
         self.summary_value.setText("Проверяю, что можно безопасно очистить…")
-        self.refresh_button.setEnabled(False)
         self.refresh_button.setText("Проверяю…")
-        self.cache_keep_combo.setEnabled(False)
         worker = _ScanWorker(self._cache_keep_versions)
         self._scan_worker = worker
+        self._set_busy(True)
         worker.signals.completed.connect(self._scan_completed)
         worker.signals.failed.connect(self._scan_failed)
         self._thread_pool.start(worker)
@@ -475,19 +492,41 @@ class MaintenancePage(NavigablePage):
 
         self._scan_worker = None
         self._loaded_once = True
-        self.refresh_button.setEnabled(True)
         self.refresh_button.setText("Проверить снова")
-        self.cache_keep_combo.setEnabled(True)
+        self._set_busy(False)
         self._apply_summary(summary)
         self.set_checked_at(self.checked_label, datetime.now().astimezone())
+        if self._post_cleanup_actions:
+            labels = {
+                MaintenanceAction.PACKAGE_CACHE: ("кэш пакетов", summary.reclaimable_cache_bytes),
+                MaintenanceAction.ORPHANS: ("зависимости", summary.orphan_packages),
+                MaintenanceAction.THUMBNAILS: ("миниатюры", summary.thumbnail_cache_bytes),
+                MaintenanceAction.TRASH: ("корзина", summary.trash_bytes),
+            }
+            remaining = [labels[action][0] for action in self._post_cleanup_actions
+                         if action in labels and labels[action][1] is not None and labels[action][1] > 0]
+            unknown = [labels[action][0] for action in self._post_cleanup_actions
+                       if action in labels and labels[action][1] is None]
+            if remaining:
+                message = "Очистка выполнена. Ещё обнаружены: " + ", ".join(remaining) + "."
+            else:
+                message = "Очистка выполнена. Выбранные категории перепроверены."
+            if unknown:
+                message += " Не удалось проверить: " + ", ".join(unknown) + "."
+            if MaintenanceAction.JOURNAL in self._post_cleanup_actions:
+                message += " Текущий системный журнал остаётся — это нормально."
+            self.status_label.setText(message)
+            self.status_label.show()
+            self._post_cleanup_actions = ()
 
     @Slot(object)
     def _scan_failed(self, error: Exception) -> None:
         self._scan_worker = None
-        self.refresh_button.setEnabled(True)
         self.refresh_button.setText("Проверить снова")
-        self.cache_keep_combo.setEnabled(True)
+        self._set_busy(False)
         self.summary_value.setText("Анализ не завершён")
+        self.status_label.setText("Повторная проверка не удалась. Изменения не подтверждены.")
+        self.status_label.show()
         QMessageBox.warning(self, "Обслуживание", str(error) or "Не удалось выполнить анализ.")
 
     def _apply_summary(self, summary: MaintenanceSummary) -> None:
@@ -628,7 +667,9 @@ class MaintenancePage(NavigablePage):
     @Slot()
     def _update_selection_summary(self) -> None:
         selected = self._selected_actions()
-        self.clean_button.setEnabled(bool(selected) and self._cleanup_worker is None)
+        self.clean_button.setEnabled(bool(selected) and not any(
+            (self._scan_worker, self._cleanup_worker, self._pacdiff_worker)
+        ))
         if not selected or self._summary is None:
             self.selection_label.setText("Выберите категории для очистки.")
             return
@@ -659,7 +700,9 @@ class MaintenancePage(NavigablePage):
 
     @Slot()
     def _confirm_cleanup(self) -> None:
-        if self._summary is None:
+        if self._summary is None or any(
+            (self._scan_worker, self._cleanup_worker, self._pacdiff_worker)
+        ):
             return
         selected = self._selected_actions()
         if not selected:
@@ -673,7 +716,7 @@ class MaintenancePage(NavigablePage):
                 cache_title += f" — оставить {self._cache_keep_versions} верс."
         titles = {
             MaintenanceAction.PACKAGE_CACHE: cache_title,
-            MaintenanceAction.ORPHANS: "Ненужные зависимости",
+            MaintenanceAction.ORPHANS: "Ненужные зависимости (включая обнаруженные после удаления)",
             MaintenanceAction.JOURNAL: "Системный журнал старше 30 дней",
             MaintenanceAction.THUMBNAILS: "Кэш миниатюр",
             MaintenanceAction.TRASH: "Корзина",
@@ -715,7 +758,10 @@ class MaintenancePage(NavigablePage):
     def _set_busy(self, busy: bool) -> None:
         self.refresh_button.setEnabled(not busy)
         self.cache_keep_combo.setEnabled(not busy)
-        self.clean_button.setEnabled(not busy and bool(self._selected_actions()))
+        self.clean_button.setEnabled(not busy and bool(self._selected_actions()) and not any(
+            (self._scan_worker, self._cleanup_worker, self._pacdiff_worker)
+        ))
+        self.busy_bar.setVisible(busy)
         self.pacdiff_button.setEnabled(
             not busy
             and self._summary is not None
@@ -726,7 +772,7 @@ class MaintenancePage(NavigablePage):
             option.checkbox.setEnabled(not busy and has_data)
 
     def _start_cleanup(self, actions: tuple[MaintenanceAction, ...]) -> None:
-        if self._cleanup_worker is not None:
+        if any((self._cleanup_worker, self._scan_worker, self._pacdiff_worker)):
             return
         self._set_busy(True)
         self._active_cleanup_actions = actions
@@ -741,6 +787,7 @@ class MaintenancePage(NavigablePage):
     def _cleanup_completed(self, result: MaintenanceCleanupResult) -> None:
         self._cleanup_worker = None
         self._active_cleanup_actions = ()
+        self._post_cleanup_actions = result.completed_actions
         self._set_busy(False)
         append_activity(
             "maintenance",
@@ -752,11 +799,9 @@ class MaintenancePage(NavigablePage):
                 "package_cache_keep_versions": result.cache_keep_versions,
             },
         )
-        QMessageBox.information(
-            self,
-            "Обслуживание завершено",
-            f"Выполнено категорий: {len(result.completed_actions)}. Arch Manager сейчас перепроверит состояние.",
-        )
+        self.maintenance_changed.emit()
+        self.status_label.setText("Очистка завершена. Перепроверяю результат…")
+        self.status_label.show()
         self.refresh()
 
     @Slot(object)
@@ -764,6 +809,7 @@ class MaintenancePage(NavigablePage):
         self._cleanup_worker = None
         actions = self._active_cleanup_actions
         self._active_cleanup_actions = ()
+        self._post_cleanup_actions = ()
         self._set_busy(False)
         if isinstance(error, MaintenanceCancelled):
             title = "Очистка отменена"
@@ -798,6 +844,8 @@ class MaintenancePage(NavigablePage):
             },
         )
         QMessageBox.warning(self, title, text)
+        if not isinstance(error, (MaintenanceCancelled, MaintenanceHelperUnavailable, MaintenanceAuthorizationError)):
+            self.maintenance_changed.emit()
         self.refresh()
 
     @Slot()
@@ -826,6 +874,7 @@ class MaintenancePage(NavigablePage):
     def _pacdiff_completed(self, _returncode: int) -> None:
         self._pacdiff_worker = None
         self._set_busy(False)
+        self.maintenance_changed.emit()
         self.refresh()
 
     @Slot(object)
