@@ -235,6 +235,12 @@ def _clear_directory_contents(path: Path) -> None:
 
 def _run_user_action(action: MaintenanceAction) -> None:
     home = Path.home()
+    if action is MaintenanceAction.AUR_CACHE:
+        for name in ("yay", "paru"):
+            aur_dir = home / ".cache" / name
+            if aur_dir.is_dir() and not aur_dir.is_symlink():
+                _clear_directory_contents(aur_dir)
+        return
     if action is MaintenanceAction.THUMBNAILS:
         _clear_directory_contents(home / ".cache" / "thumbnails")
         return

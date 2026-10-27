@@ -307,6 +307,14 @@ class MaintenancePage(NavigablePage):
         options_layout = QVBoxLayout(self.options_card)
         options_layout.setContentsMargins(0, 0, 0, 0)
         options_layout.setSpacing(0)
+        tools_row = QHBoxLayout()
+        tools_row.setContentsMargins(16, 4, 16, 2)
+        self.master_checkbox = QCheckBox("Выбрать всё безопасное")
+        self.master_checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.master_checkbox.clicked.connect(self._on_master_checkbox_clicked)
+        tools_row.addWidget(self.master_checkbox)
+        tools_row.addStretch(1)
+        body_layout.addLayout(tools_row)
         body_layout.addWidget(self.options_card)
 
         self.options: dict[MaintenanceAction, _MaintenanceOption] = {
@@ -329,6 +337,11 @@ class MaintenancePage(NavigablePage):
             MaintenanceAction.THUMBNAILS: _MaintenanceOption(
                 "Кэш миниатюр",
                 "Предпросмотры изображений и видео. При необходимости приложения создадут их заново.",
+                default_checked=True,
+            ),
+            MaintenanceAction.AUR_CACHE: _MaintenanceOption(
+                "Кэш AUR (yay / paru)",
+                "Временные сборочные файлы и загруженные исходники пакетов AUR.",
                 default_checked=True,
             ),
             MaintenanceAction.TRASH: _MaintenanceOption(
@@ -429,6 +442,18 @@ class MaintenancePage(NavigablePage):
         action_layout.addWidget(self.busy_bar)
         layout.addWidget(action_card)
 
+    @Slot()
+    def _on_master_checkbox_clicked(self) -> None:
+        should_check = self.master_checkbox.isChecked()
+        for action, option in self.options.items():
+            if option.checkbox.isEnabled():
+                if should_check:
+                    if action not in (MaintenanceAction.ORPHANS, MaintenanceAction.TRASH) and not getattr(option, "cautious", False):
+                        option.checkbox.setChecked(True)
+                else:
+                    option.checkbox.setChecked(False)
+        self._update_selection_summary()
+
     def _set_config_details(self, text: str) -> None:
         self._config_details_text = text
 
@@ -501,6 +526,7 @@ class MaintenancePage(NavigablePage):
                 MaintenanceAction.PACKAGE_CACHE: ("кэш пакетов", summary.reclaimable_cache_bytes),
                 MaintenanceAction.ORPHANS: ("зависимости", summary.orphan_packages),
                 MaintenanceAction.THUMBNAILS: ("миниатюры", summary.thumbnail_cache_bytes),
+                MaintenanceAction.AUR_CACHE: ("кэш AUR", summary.aur_cache_bytes),
                 MaintenanceAction.TRASH: ("корзина", summary.trash_bytes),
             }
             remaining = [labels[action][0] for action in self._post_cleanup_actions
@@ -560,9 +586,16 @@ class MaintenancePage(NavigablePage):
             )
         if cache_bytes == 0:
             cache_details = "Для выбранного режима хранения старых версий для удаления не найдено."
+        if cache_bytes is None:
+            cache_display = "Нет данных"
+        elif cache_bytes == 0:
+            cache_display = f"0 Б (хранить: {summary.cache_keep_versions} верс.)"
+        else:
+            cache_display = format_bytes(cache_bytes)
+
         cache.set_state(
             enabled=cache_enabled,
-            value=("Нет данных" if cache_bytes is None else format_bytes(cache_bytes)),
+            value=cache_display,
             details=cache_details,
         )
 
@@ -614,6 +647,21 @@ class MaintenancePage(NavigablePage):
             ),
         )
 
+        if MaintenanceAction.AUR_CACHE in self.options:
+            aur = self.options[MaintenanceAction.AUR_CACHE]
+            aur_bytes = summary.aur_cache_bytes
+            aur_enabled = aur_bytes is not None and aur_bytes > 0
+            aur.checkbox.setProperty("hasData", aur_enabled)
+            aur.set_state(
+                enabled=aur_enabled,
+                value=("Нет данных" if aur_bytes is None else format_bytes(aur_bytes)),
+                details=(
+                    f"Объектов сборки AUR: {summary.aur_cache_items or 0}. При повторной сборке они загрузятся снова."
+                    if aur_bytes is not None
+                    else "Кэш AUR пуст или не найден."
+                ),
+            )
+
         trash = self.options[MaintenanceAction.TRASH]
         trash_bytes = summary.trash_bytes
         trash_enabled = trash_bytes is not None and trash_bytes > 0
@@ -664,9 +712,35 @@ class MaintenancePage(NavigablePage):
             action for action, option in self.options.items() if option.checkbox.isChecked()
         )
 
+    @staticmethod
+    def _format_cat_count(count: int) -> str:
+        if 11 <= count % 100 <= 19:
+            return f"{count} категорий"
+        remainder = count % 10
+        if remainder == 1:
+            return f"{count} категория"
+        if 2 <= remainder <= 4:
+            return f"{count} категории"
+        return f"{count} категорий"
+
     @Slot()
     def _update_selection_summary(self) -> None:
         selected = self._selected_actions()
+        if hasattr(self, "master_checkbox"):
+            safe_enabled = [
+                opt for act, opt in self.options.items()
+                if opt.checkbox.isEnabled() and act not in (MaintenanceAction.ORPHANS, MaintenanceAction.TRASH) and not getattr(opt, "cautious", False)
+            ]
+            if safe_enabled:
+                checked_safe = [opt for opt in safe_enabled if opt.checkbox.isChecked()]
+                self.master_checkbox.blockSignals(True)
+                if len(checked_safe) == len(safe_enabled):
+                    self.master_checkbox.setCheckState(Qt.CheckState.Checked)
+                elif len(checked_safe) > 0:
+                    self.master_checkbox.setCheckState(Qt.CheckState.PartiallyChecked)
+                else:
+                    self.master_checkbox.setCheckState(Qt.CheckState.Unchecked)
+                self.master_checkbox.blockSignals(False)
         self.clean_button.setEnabled(bool(selected) and not any(
             (self._scan_worker, self._cleanup_worker, self._pacdiff_worker)
         ))
@@ -680,6 +754,7 @@ class MaintenancePage(NavigablePage):
             MaintenanceAction.PACKAGE_CACHE: self._summary.reclaimable_cache_bytes,
             MaintenanceAction.ORPHANS: self._summary.orphan_installed_bytes,
             MaintenanceAction.THUMBNAILS: self._summary.thumbnail_cache_bytes,
+            MaintenanceAction.AUR_CACHE: self._summary.aur_cache_bytes,
             MaintenanceAction.TRASH: self._summary.trash_bytes,
         }
         for action in selected:
@@ -688,15 +763,22 @@ class MaintenancePage(NavigablePage):
                 selected_bytes += value
                 known_any = True
 
-        suffix = ""
-        if MaintenanceAction.JOURNAL in selected:
-            suffix = " + старые журналы"
-        if known_any:
+        has_journal = MaintenanceAction.JOURNAL in selected
+        count = len(selected)
+
+        cat_text = self._format_cat_count(count)
+        if count == 1 and has_journal:
+            self.selection_label.setText("Выбрано: Системный журнал (ротация записей старше 30 дней)")
+        elif known_any and has_journal:
             self.selection_label.setText(
-                f"Выбрано: {len(selected)} · ожидается около {format_bytes(selected_bytes)}{suffix}"
+                f"Выбрано: {cat_text} · ожидается около {format_bytes(selected_bytes)} (+ ротация журналов)"
+            )
+        elif known_any:
+            self.selection_label.setText(
+                f"Выбрано: {cat_text} · ожидается около {format_bytes(selected_bytes)}"
             )
         else:
-            self.selection_label.setText(f"Выбрано: {len(selected)}{suffix}")
+            self.selection_label.setText(f"Выбрано: {cat_text}")
 
     @Slot()
     def _confirm_cleanup(self) -> None:
@@ -719,6 +801,7 @@ class MaintenancePage(NavigablePage):
             MaintenanceAction.ORPHANS: "Ненужные зависимости (включая обнаруженные после удаления)",
             MaintenanceAction.JOURNAL: "Системный журнал старше 30 дней",
             MaintenanceAction.THUMBNAILS: "Кэш миниатюр",
+            MaintenanceAction.AUR_CACHE: "Кэш AUR (yay / paru)",
             MaintenanceAction.TRASH: "Корзина",
         }
         lines = "\n".join(f"• {titles[action]}" for action in selected)
@@ -757,6 +840,8 @@ class MaintenancePage(NavigablePage):
 
     def _set_busy(self, busy: bool) -> None:
         self.refresh_button.setEnabled(not busy)
+        if hasattr(self, "master_checkbox"):
+            self.master_checkbox.setEnabled(not busy)
         self.cache_keep_combo.setEnabled(not busy)
         self.clean_button.setEnabled(not busy and bool(self._selected_actions()) and not any(
             (self._scan_worker, self._cleanup_worker, self._pacdiff_worker)

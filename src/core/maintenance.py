@@ -26,6 +26,8 @@ class MaintenanceSummary:
     trash_locations: int | None = None
     thumbnail_cache_bytes: int | None = None
     thumbnail_items: int | None = None
+    aur_cache_bytes: int | None = None
+    aur_cache_items: int | None = None
     orphan_installed_bytes: int | None = None
     orphan_names: tuple[str, ...] = ()
     config_attention_paths: tuple[str, ...] = ()
@@ -44,6 +46,7 @@ class MaintenanceSummary:
             self.orphan_installed_bytes,
             self.trash_bytes,
             self.thumbnail_cache_bytes,
+            self.aur_cache_bytes,
         )
         known = [value for value in values if value is not None]
         return sum(known) if known else None
@@ -311,6 +314,21 @@ def _trash_usage(
     return (total_bytes, total_items, len(roots))
 
 
+def _aur_cache_usage(home: Path) -> tuple[int, int] | None:
+    yay_cache = home / ".cache" / "yay"
+    paru_cache = home / ".cache" / "paru"
+    total_bytes = 0
+    total_items = 0
+    found = False
+    for path in (yay_cache, paru_cache):
+        usage = _directory_usage(path)
+        if usage is not None:
+            total_bytes += usage[0]
+            total_items += usage[1]
+            found = True
+    return (total_bytes, total_items) if found else (0, 0)
+
+
 def _thumbnail_usage(home: Path) -> tuple[int, int] | None:
     return _directory_usage(home / ".cache" / "thumbnails")
 
@@ -324,6 +342,7 @@ def collect_maintenance(
     config_paths = _config_attention_paths()
     trash = _trash_usage(home)
     thumbnails = _thumbnail_usage(home)
+    aur_cache = _aur_cache_usage(home)
 
     return MaintenanceSummary(
         reclaimable_cache_bytes=_cache_reclaimable(cache_keep_versions),
@@ -335,6 +354,8 @@ def collect_maintenance(
         trash_locations=None if trash is None else trash[2],
         thumbnail_cache_bytes=None if thumbnails is None else thumbnails[0],
         thumbnail_items=None if thumbnails is None else thumbnails[1],
+        aur_cache_bytes=None if aur_cache is None else aur_cache[0],
+        aur_cache_items=None if aur_cache is None else aur_cache[1],
         orphan_installed_bytes=(
             None if orphan_names is None else _orphan_installed_size(orphan_names)
         ),

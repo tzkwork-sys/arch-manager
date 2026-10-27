@@ -16,6 +16,7 @@ class MaintenanceAction(str, Enum):
     JOURNAL = "journal"
     THUMBNAILS = "thumbnails"
     TRASH = "trash"
+    AUR_CACHE = "aur-cache"
 
 
 PRIVILEGED_ACTIONS = frozenset(
@@ -25,13 +26,14 @@ PRIVILEGED_ACTIONS = frozenset(
         MaintenanceAction.JOURNAL,
     }
 )
-USER_ACTIONS = frozenset({MaintenanceAction.THUMBNAILS, MaintenanceAction.TRASH})
+USER_ACTIONS = frozenset({MaintenanceAction.THUMBNAILS, MaintenanceAction.TRASH, MaintenanceAction.AUR_CACHE})
 _ACTION_ORDER = (
     MaintenanceAction.PACKAGE_CACHE,
     MaintenanceAction.ORPHANS,
     MaintenanceAction.JOURNAL,
     MaintenanceAction.THUMBNAILS,
     MaintenanceAction.TRASH,
+    MaintenanceAction.AUR_CACHE,
 )
 
 
