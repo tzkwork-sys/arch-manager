@@ -100,7 +100,7 @@ printf '%s\n' ' Arch Manager — обновление системы'
 printf '%s\n' '============================================================'
 printf '\n'
 printf '%s\n' 'Если требуется, введите административный пароль один раз в этом терминале.'
-printf '%s\n' 'На вопросы pacman/yay ([Y/n], [y/N] и т. п.) отвечайте здесь же.'
+printf '%s\n' 'Стандартные подтверждения pacman автоматизированы; вопросы AUR остаются интерактивными.'
 printf '%s\n' 'Arch Manager не получает и не сохраняет пароль.'
 printf '\n'
 
@@ -153,7 +153,7 @@ fi
 if [[ "$OFFICIAL" == yes ]]; then
     write_status running "official"
     printf '[2] Официальные обновления Arch\n\n'
-    "$SUDO" -n "$PACMAN" -Syu
+    "$SUDO" -n "$PACMAN" -Syu --noconfirm
     pacman_rc=$?
     if (( pacman_rc != 0 )); then
         write_status official-failed "pacman:$pacman_rc"

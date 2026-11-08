@@ -98,9 +98,9 @@ def test_stage5_runner_keeps_package_manager_interactive_selective_and_orders_st
     source = RUNNER.read_text(encoding="utf-8")
     assert 'PACMAN=/usr/bin/pacman' in source
     assert 'YAY=/usr/bin/yay' in source
-    assert '"$SUDO" -n "$PACMAN" -Syu' in source
+    assert '"$SUDO" -n "$PACMAN" -Syu --noconfirm' in source
     assert '"$YAY" -S --needed --aur -- "${AUR_PACKAGES[@]}"' in source
-    assert "--noconfirm" not in source
+    assert '"$YAY" -S --noconfirm' not in source
     assert "eval " not in source
     assert "bash -c" not in source
     assert "AUR-пакеты после ошибки официального этапа не устанавливаются." in source
@@ -136,3 +136,15 @@ def test_update_header_buttons_primary_style_and_order():
     assert "emphasize_primary_button(self.refresh_button)" not in source
     assert 'self.refresh_button.setMinimumHeight(36)' in source
     assert 'self.install_button.setMinimumHeight(36)' in source
+
+
+def test_update_action_skips_redundant_gui_confirmation_but_keeps_protection():
+    source = PAGE.read_text(encoding="utf-8")
+    start = source.index("    def _start_install(self) -> None:")
+    end = source.index("    @Slot(bool)\n    def _session_running_changed", start)
+    method = source[start:end]
+    assert '"Установить обновления?"' not in method
+    assert '"Обновить Flatpak?"' not in method
+    assert "QMessageBox.question(" not in method
+    assert "create_restore_point=protected" in method
+    assert "self._start_flatpak_batch(flatpak_updates)" in method

@@ -42,7 +42,7 @@ esac
     calls = log.read_text().splitlines()
     assert calls[0] == "-v"
     assert "-k" not in calls
-    assert f"-n {pacman} -Syu" in calls
+    assert f"-n {pacman} -Syu --noconfirm" in calls
     assert status.read_text().startswith("success\t")
 
 

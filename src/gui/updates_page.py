@@ -685,48 +685,15 @@ class UpdatesPage(NavigablePage):
             return
 
         if official_count == 0 and not aur_packages and flatpak_updates:
-            answer = QMessageBox.question(
-                self, "Обновить Flatpak?",
-                f"Выбрано Flatpak-приложений: {len(flatpak_updates)}.\n"
-                "Операции выполняются через Flatpak без pacman/yay. "
-                "Для общесистемных приложений KDE может запросить авторизацию.\n"
-                "Точка восстановления перед системным обновлением в этом режиме не создаётся.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
-            )
-            if answer == QMessageBox.StandardButton.Yes:
-                self._start_flatpak_batch(flatpak_updates)
+            self._start_flatpak_batch(flatpak_updates)
             return
+        # A click on the explicitly labelled update action is the user's consent.
+        # Keep the configured pre-update recovery point, but avoid a redundant GUI dialog.
         protected = self.settings.value(
             AUTO_RESTORE_POINT_BEFORE_UPDATE_KEY,
             AUTO_RESTORE_POINT_BEFORE_UPDATE_DEFAULT,
             type=bool,
         )
-        protection_text = (
-            "Перед обновлением будет создана важная точка восстановления."
-            if protected
-            else "Автоматическая точка восстановления отключена в Настройках."
-        )
-        aur_text = (
-            f"Выбрано AUR-пакетов: {len(aur_packages)} из {len(details.aur.items)}."
-            if details.aur.items
-            else "AUR-пакетов для обновления нет."
-        )
-
-        answer = QMessageBox.question(
-            self,
-            "Установить обновления?",
-            f"Официальных обновлений: {official_count}.\n"
-            f"{aur_text}\nFlatpak-приложений: {len(flatpak_updates)}.\n\n"
-            f"{protection_text}\n\n"
-            "После подтверждения откроется отдельное окно терминала. "
-            "Пароль администратора вводится там один раз; вопросы pacman/yay "
-            "([Y/n], [y/N] и т. п.) также задаются и подтверждаются прямо в терминале.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
 
         self._pending_flatpak = flatpak_updates
         self._session_started_at = datetime.now().astimezone()
